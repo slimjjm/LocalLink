@@ -37,8 +37,9 @@ struct RootView: View {
         }
     }
     enum AppConfig {
-        static let activeBusinessId = "F34E09A6-462A-4F05-B040-EA7D65684436"
+        static let activeBusinessId = "demo-business-id"
     }
+
     private func ensureSignedIn() async {
         if Auth.auth().currentUser == nil {
             do {

@@ -3,13 +3,7 @@ import SwiftUI
 struct CustomerServiceListView: View {
 
     let businessId: String
-    @StateObject private var viewModel: ServiceListViewModel
-
-    // MARK: - Init
-    init(businessId: String) {
-        self.businessId = businessId
-        _viewModel = StateObject(wrappedValue: ServiceListViewModel())
-    }
+    @StateObject private var viewModel = ServiceListViewModel()
 
     var body: some View {
         Group {
@@ -32,7 +26,7 @@ struct CustomerServiceListView: View {
                 List(viewModel.services) { service in
                     NavigationLink {
                         CustomerServiceDetailView(
-                            businessId: businessId,
+                            businessId: businessId,   // 🔑 pass through unchanged
                             service: service
                         )
                     } label: {

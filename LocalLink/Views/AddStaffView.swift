@@ -58,9 +58,10 @@ struct AddStaffView: View {
 
         let staff = Staff(
             name: name,
-            skills: skills,
-            isActive: true
+            isActive: true,
+            skills: skills.isEmpty ? nil : skills
         )
+
 
         do {
             _ = try db

@@ -30,7 +30,7 @@ struct CustomerHomeView: View {
                 .buttonStyle(.bordered)
                 .padding(.horizontal)
 
-                // SERVICES
+                // SERVICES (🔥 single source of truth)
                 CustomerServiceListView(
                     businessId: AppConfig.demoBusinessId
                 )
@@ -40,6 +40,7 @@ struct CustomerHomeView: View {
         }
     }
 }
+
 
 
 

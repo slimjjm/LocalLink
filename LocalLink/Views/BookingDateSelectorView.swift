@@ -25,7 +25,7 @@ struct BookingDateSelectorView: View {
 
             NavigationLink {
                 TimeSlotSelectorView(
-                    businessId: businessId,
+                    businessId: "demo-business-id",
                     service: service,
                     date: selectedDate
                 )

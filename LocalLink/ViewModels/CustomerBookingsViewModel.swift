@@ -2,42 +2,46 @@ import Foundation
 import FirebaseFirestore
 import FirebaseAuth
 
+@MainActor
 final class CustomerBookingsViewModel: ObservableObject {
 
-    @Published var bookings: [Booking] = []
+    @Published var upcoming: [Booking] = []
+    @Published var past: [Booking] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
 
     private let db = Firestore.firestore()
 
     func loadBookings() {
-        guard let userId = Auth.auth().currentUser?.uid else {
-            errorMessage = "Not signed in"
+        guard let customerId = Auth.auth().currentUser?.uid else {
+            errorMessage = "Not logged in"
             return
         }
-
-        let today = Calendar.current.startOfDay(for: Date())
 
         isLoading = true
         errorMessage = nil
 
         db.collection("bookings")
-            .whereField("customerId", isEqualTo: userId)
-            .whereField("date", isGreaterThanOrEqualTo: today)
-            .whereField("status", isEqualTo: BookingStatus.confirmed.rawValue)
-            .order(by: "date")
-            .getDocuments { snapshot, error in
+            .whereField("customerId", isEqualTo: customerId)
+            .order(by: "startDate", descending: false)
+            .getDocuments { [weak self] snapshot, error in
+
                 DispatchQueue.main.async {
-                    self.isLoading = false
+                    self?.isLoading = false
 
                     if let error {
-                        self.errorMessage = error.localizedDescription
+                        self?.errorMessage = error.localizedDescription
                         return
                     }
 
-                    self.bookings = snapshot?.documents.compactMap {
+                    let bookings = snapshot?.documents.compactMap {
                         try? $0.data(as: Booking.self)
                     } ?? []
+
+                    let now = Date()
+
+                    self?.upcoming = bookings.filter { $0.endDate >= now }
+                    self?.past = bookings.filter { $0.endDate < now }
                 }
             }
     }

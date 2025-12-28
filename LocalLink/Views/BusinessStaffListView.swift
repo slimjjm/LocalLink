@@ -84,8 +84,8 @@ struct BusinessStaffListView: View {
                             Text(member.name)
                                 .font(.headline)
 
-                            if !member.skills.isEmpty {
-                                Text(member.skills.joined(separator: ", "))
+                            if let skills = member.skills, !skills.isEmpty {
+                                Text(skills.joined(separator: ", "))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
