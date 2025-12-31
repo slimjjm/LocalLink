@@ -2,11 +2,12 @@ import SwiftUI
 
 struct CustomerHomeView: View {
 
+    private let DEMO_BUSINESS_ID = "F34E09A6-462A-4F05-B040-EA7D65684436"
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
 
-                // HEADER
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Book a service")
                         .font(.largeTitle.bold())
@@ -17,7 +18,6 @@ struct CustomerHomeView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal)
 
-                // ACTION BUTTON
                 NavigationLink {
                     CustomerBookingsView()
                 } label: {
@@ -30,16 +30,21 @@ struct CustomerHomeView: View {
                 .buttonStyle(.bordered)
                 .padding(.horizontal)
 
-                // SERVICES (🔥 single source of truth)
-                CustomerServiceListView(
-                    businessId: AppConfig.demoBusinessId
-                )
+                NavigationLink("Find a business") {
+                    BusinessListView()
+                }
+
+
+
+
+                Spacer()
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
         }
     }
 }
+
 
 
 

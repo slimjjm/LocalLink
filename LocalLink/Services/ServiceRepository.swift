@@ -5,27 +5,23 @@ final class ServiceRepository {
 
     private let db = Firestore.firestore()
 
-    func fetchService(
+    func fetchServices(
         businessId: String,
-        serviceId: String,
-        completion: @escaping (Service?) -> Void
+        completion: @escaping ([BusinessService]) -> Void
     ) {
         db.collection("businesses")
             .document(businessId)
             .collection("services")
-            .document(serviceId)
-            .getDocument { snapshot, error in
+            .getDocuments { snapshot, error in
 
-                guard
-                    let snapshot,
-                    snapshot.exists,
-                    let service = try? snapshot.data(as: Service.self)
-                else {
-                    completion(nil)
-                    return
+                if let snapshot {
+                    let services = snapshot.documents.compactMap {
+                        try? $0.data(as: BusinessService.self)
+                    }
+                    completion(services)
+                } else {
+                    completion([])
                 }
-
-                completion(service)
             }
     }
 }

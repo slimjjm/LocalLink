@@ -2,26 +2,25 @@ import SwiftUI
 
 struct HomeServiceCategoryView: View {
 
-    // TEMP: same demo businessId used in CustomerHomeView
-    private let demoBusinessId = "demo-business-id"
+    let businessId: String   // 👈 REQUIRED INPUT
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
+        VStack(spacing: 24) {
 
-                Text("Browse Categories")
-                    .font(.largeTitle.bold())
+            Text("Browse Categories")
+                .font(.largeTitle.bold())
 
-                NavigationLink("View Services") {
-                    CustomerServiceListView(
-                        businessId: demoBusinessId
-                    )
-                }
-                .buttonStyle(.borderedProminent)
-
-                Spacer()
+            NavigationLink("View Services") {
+                CustomerServiceListView(
+                    businessId: businessId
+                )
             }
-            .padding()
+            .buttonStyle(.borderedProminent)
+
+            Spacer()
         }
+        .padding()
+        .navigationTitle("Categories")
     }
 }
+

@@ -4,10 +4,11 @@ final class BookingService {
 
     private let bookingRepo = BookingRepository()
 
+    // MARK: - Confirm Booking
     func confirmBooking(
         businessId: String,
         customerId: String,
-        service: Service,
+        service: BusinessService,
         staff: Staff,
         date: Date,
         startTime: Date,
@@ -15,7 +16,6 @@ final class BookingService {
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
 
-        // 🔒 Hard safety: IDs MUST exist at this point
         guard
             let serviceId = service.id,
             let staffId = staff.id
@@ -40,14 +40,36 @@ final class BookingService {
             staffId: staffId,
             staffName: staff.name,
 
-            date: date,                 // booking day
-            startDate: startTime,       // booking start
-            endDate: endTime,           // booking end
+            date: date,
+            startDate: startTime,
+            endDate: endTime,
 
             status: .confirmed,
             createdAt: Date()
         )
 
         bookingRepo.createBooking(booking, completion: completion)
+    }
+
+    // MARK: - Cancel (Customer)
+    func cancelBookingAsCustomer(
+        bookingId: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        bookingRepo.cancelBookingByCustomer(
+            bookingId: bookingId,
+            completion: completion
+        )
+    }
+
+    // MARK: - Cancel (Business)
+    func cancelBookingAsBusiness(
+        bookingId: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        bookingRepo.cancelBookingByBusiness(
+            bookingId: bookingId,
+            completion: completion
+        )
     }
 }

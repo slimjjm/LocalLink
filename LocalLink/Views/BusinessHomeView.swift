@@ -16,6 +16,8 @@ struct BusinessHomeView: View {
                 }
                 .padding()
             }
+            .background(Color(.systemGroupedBackground))
+
             .navigationTitle("Business")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -34,6 +36,7 @@ struct BusinessHomeView: View {
             Text("Welcome")
                 .font(.caption)
                 .foregroundColor(.secondary)
+            
 
             Text("Your Dashboard")
                 .font(.title.bold())
@@ -50,12 +53,12 @@ struct BusinessHomeView: View {
             ],
             spacing: 16
         ) {
-
             NavigationLink {
-                BusinessBookingsView()
+                BusinessBookingsView(businessId: businessId)
             } label: {
-                menuTile(title: "Bookings", icon: "calendar")
+                Label("Bookings", systemImage: "calendar")
             }
+
 
             NavigationLink {
                 BusinessStaffListView(businessId: businessId)

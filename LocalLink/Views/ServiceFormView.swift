@@ -1,12 +1,13 @@
 import SwiftUI
 import FirebaseFirestore
+import FirebaseFirestoreSwift
 
 struct ServiceFormView: View {
 
     @Environment(\.dismiss) private var dismiss
 
     let businessId: String
-    let existingService: Service?   // nil = Add, non-nil = Edit
+    let existingService: BusinessService?   // nil = Add, non-nil = Edit
 
     // MARK: - Form Fields
     @State private var name = ""
@@ -22,11 +23,9 @@ struct ServiceFormView: View {
 
     private let db = Firestore.firestore()
 
-    // MARK: - Body
     var body: some View {
         Form {
 
-            // Delete (edit only)
             if existingService != nil {
                 Section {
                     Button("Delete Service", role: .destructive) {
@@ -35,7 +34,6 @@ struct ServiceFormView: View {
                 }
             }
 
-            // Main form
             Section("Service Info") {
 
                 TextField("Name", text: $name)
@@ -78,7 +76,6 @@ struct ServiceFormView: View {
         }
     }
 
-    // MARK: - Load Existing
     private func loadExistingIfNeeded() {
         guard let service = existingService else { return }
 
@@ -86,10 +83,9 @@ struct ServiceFormView: View {
         details = service.details ?? ""
         priceText = String(format: "%.2f", service.price)
         durationText = String(service.durationMinutes)
-        isActive = service.isActive
+        isActive = service.isActive ?? true
     }
 
-    // MARK: - Save
     private func saveTapped() {
         localError = ""
 
@@ -111,15 +107,12 @@ struct ServiceFormView: View {
         isSaving = true
 
         let data: [String: Any] = [
-            "businessId": businessId,
             "name": name,
-            "details": details,
+            "details": details.isEmpty ? NSNull() : details,
             "price": price,
             "durationMinutes": durationMinutes,
             "isActive": isActive,
-            "createdAt": existingService == nil
-                ? FieldValue.serverTimestamp()
-                : existingService?.createdAt as Any
+            "createdAt": existingService == nil ? FieldValue.serverTimestamp() : (existingService?.createdAt as Any)
         ]
 
         let servicesRef = db
@@ -130,29 +123,18 @@ struct ServiceFormView: View {
         if let service = existingService, let id = service.id {
             servicesRef.document(id).setData(data, merge: true) { error in
                 isSaving = false
-
-                if let error {
-                    localError = error.localizedDescription
-                    return
-                }
-
+                if let error { localError = error.localizedDescription; return }
                 dismiss()
             }
         } else {
             servicesRef.addDocument(data: data) { error in
                 isSaving = false
-
-                if let error {
-                    localError = error.localizedDescription
-                    return
-                }
-
+                if let error { localError = error.localizedDescription; return }
                 dismiss()
             }
         }
     }
 
-    // MARK: - Delete
     private func deleteTapped() {
         guard let service = existingService, let id = service.id else { return }
 
@@ -165,3 +147,4 @@ struct ServiceFormView: View {
             }
     }
 }
+

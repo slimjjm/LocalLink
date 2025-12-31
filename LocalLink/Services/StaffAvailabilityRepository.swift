@@ -14,20 +14,31 @@ final class StaffAvailabilityRepository {
             .document(businessId)
             .collection("staff")
             .document(staffId)
-            .collection("availability")
-            .getDocuments { snapshot, error in
+            .getDocument { snapshot, _ in
 
-                var result: [String: StaffDayAvailability] = [:]
-
-                guard let documents = snapshot?.documents else {
-                    completion(result)
+                guard
+                    let data = snapshot?.data(),
+                    let availability = data["availability"] as? [String: Any]
+                else {
+                    completion([:])
                     return
                 }
 
-                for doc in documents {
-                    if let availability = try? doc.data(as: StaffDayAvailability.self) {
-                        result[doc.documentID] = availability
-                    }
+                var result: [String: StaffDayAvailability] = [:]
+
+                for (day, value) in availability {
+                    guard
+                        let map = value as? [String: Any],
+                        let open = map["open"] as? String,
+                        let close = map["close"] as? String,
+                        let closed = map["closed"] as? Bool
+                    else { continue }
+
+                    result[day] = StaffDayAvailability(
+                        open: open,
+                        close: close,
+                        closed: closed
+                    )
                 }
 
                 completion(result)

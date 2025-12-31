@@ -4,7 +4,7 @@ final class StaffAvailabilityEngine {
 
     func loadAvailableSlots(
         businessId: String,
-        service: Service,
+        service: BusinessService,
         date: Date,
         completion: @escaping ([StaffSlot]) -> Void
     ) {
@@ -12,3 +12,4 @@ final class StaffAvailabilityEngine {
         completion([])
     }
 }
+

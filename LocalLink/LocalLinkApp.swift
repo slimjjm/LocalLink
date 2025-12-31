@@ -1,21 +1,26 @@
 import SwiftUI
-import FirebaseCore
+import Firebase
 
 @main
 struct LocalLinkApp: App {
 
+    @StateObject private var authManager: AuthManager
+
     init() {
         FirebaseApp.configure()
-
-        // DEV MODE ONLY
-        // Always reset role on app launch
-        UserDefaults.standard.removeObject(forKey: "userType")
+        _authManager = StateObject(wrappedValue: AuthManager())
     }
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            ContentView()
+                .environmentObject(authManager)
         }
     }
 }
+
+
+
+
+
 

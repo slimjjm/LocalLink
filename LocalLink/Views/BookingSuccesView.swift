@@ -2,6 +2,8 @@ import SwiftUI
 
 struct BookingSuccessView: View {
 
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
         VStack(spacing: 24) {
 
@@ -16,8 +18,8 @@ struct BookingSuccessView: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
 
-            NavigationLink("View my bookings") {
-                CustomerBookingsView()
+            Button("View my bookings") {
+                dismissToRoot()
             }
             .buttonStyle(.borderedProminent)
 
@@ -26,6 +28,10 @@ struct BookingSuccessView: View {
         .padding()
         .navigationBarBackButtonHidden(true)
     }
+
+    private func dismissToRoot() {
+        dismiss()
+        dismiss()
+        dismiss()
+    }
 }
-
-

@@ -2,126 +2,140 @@ import SwiftUI
 import PhotosUI
 import FirebaseFirestore
 import FirebaseStorage
+import FirebaseAuth
 
-class BusinessViewModel: ObservableObject {
+final class BusinessViewModel: ObservableObject {
 
-    // MARK: - Published fields for your onboarding steps
+    // MARK: - Onboarding Fields
     @Published var businessName: String = ""
     @Published var businessDescription: String = ""
     @Published var serviceCategory: String = ""
 
     // Step 4 – Photo
-    @Published var imageSelection: PhotosPickerItem? = nil
-    @Published var selectedImage: UIImage? = nil
-    @Published var uploadedImageURL: String? = nil
+    @Published var imageSelection: PhotosPickerItem?
+    @Published var selectedImage: UIImage?
+    @Published var uploadedImageURL: String?
 
-    // MARK: - Loading and completion state
-    @Published var isSaving: Bool = false
+    // MARK: - State
+    @Published var isSaving = false
 
     // MARK: - Validation
     var isFullyValid: Bool {
-        return !businessName.isEmpty &&
-               !businessDescription.isEmpty &&
-               !serviceCategory.isEmpty &&
-               selectedImage != nil
+        !businessName.isEmpty &&
+        !businessDescription.isEmpty &&
+        !serviceCategory.isEmpty &&
+        selectedImage != nil
     }
 
-    // MARK: - Handle Image Picker
+    // MARK: - Image Picker
     func loadImage() {
         guard let imageSelection else { return }
 
         Task {
             if let data = try? await imageSelection.loadTransferable(type: Data.self),
-               let uiImage = UIImage(data: data) {
+               let image = UIImage(data: data) {
                 await MainActor.run {
-                    self.selectedImage = uiImage
+                    self.selectedImage = image
                 }
             }
         }
     }
 
-    // MARK: - Upload image to Firebase Storage
-    private func uploadImage(_ image: UIImage, completion: @escaping (String?) -> Void) {
-
-        guard let imageData = image.jpegData(compressionQuality: 0.8) else {
-            completion(nil)
+    // MARK: - Image Upload
+    private func uploadImage(
+        _ image: UIImage,
+        completion: @escaping (Result<String, Error>) -> Void
+    ) {
+        guard let data = image.jpegData(compressionQuality: 0.8) else {
+            completion(.failure(NSError(domain: "ImageError", code: -1)))
             return
         }
 
         let filename = UUID().uuidString + ".jpg"
-        let storageRef = Storage.storage().reference().child("business_images/\(filename)")
+        let ref = Storage.storage()
+            .reference()
+            .child("business_images/\(filename)")
 
-        storageRef.putData(imageData, metadata: nil) { _, error in
-            if let error = error {
-                print("❌ Failed to upload image:", error)
-                completion(nil)
+        ref.putData(data) { _, error in
+            if let error {
+                completion(.failure(error))
                 return
             }
 
-            storageRef.downloadURL { url, error in
-                if let error = error {
-                    print("❌ Failed to get download URL:", error)
-                    completion(nil)
+            ref.downloadURL { url, error in
+                if let error {
+                    completion(.failure(error))
                     return
                 }
-                completion(url?.absoluteString)
+
+                completion(.success(url!.absoluteString))
             }
         }
     }
 
-    // MARK: - Save Business to Firestore
+    // MARK: - Save Business
     func saveBusiness(completion: @escaping (Bool) -> Void) {
 
         guard isFullyValid else {
-            print("❌ All fields required")
+            print("❌ Validation failed")
+            completion(false)
+            return
+        }
+
+        guard let uid = Auth.auth().currentUser?.uid else {
+            print("❌ No authenticated user")
+            completion(false)
+            return
+        }
+
+        guard let image = selectedImage else {
             completion(false)
             return
         }
 
         isSaving = true
 
-        guard let imageToUpload = selectedImage else {
-            print("❌ No image selected")
-            completion(false)
-            return
-        }
+        uploadImage(image) { [weak self] result in
+            guard let self else { return }
 
-        // STEP 1 — Upload image
-        uploadImage(imageToUpload) { [weak self] imageURL in
-            guard let self = self else { return }
+            switch result {
 
-            if imageURL == nil {
+            case .failure(let error):
                 DispatchQueue.main.async {
+                    print("❌ Image upload failed:", error)
                     self.isSaving = false
                     completion(false)
                 }
-                return
-            }
 
-            self.uploadedImageURL = imageURL
+            case .success(let imageURL):
+                self.uploadedImageURL = imageURL
 
-            // STEP 2 — Save business document
-            let db = Firestore.firestore()
-            let businessData: [String: Any] = [
-                "businessName": self.businessName,
-                "businessDescription": self.businessDescription,
-                "serviceCategory": self.serviceCategory,
-                "imageURL": imageURL!,
-                "createdAt": Timestamp()
-            ]
+                let businessData: [String: Any] = [
+                    "businessName": self.businessName,
+                    "businessDescription": self.businessDescription,
+                    "serviceCategory": self.serviceCategory,
+                    "imageURL": imageURL,
+                    "ownerId": uid,                 // ✅ CRITICAL FIX
+                    "createdAt": Timestamp()
+                ]
 
-            db.collection("businesses").addDocument(data: businessData) { error in
-                DispatchQueue.main.async {
-                    self.isSaving = false
-                    if let error = error {
-                        print("❌ Firestore save failed:", error)
-                        completion(false)
-                    } else {
-                        print("✅ Business saved successfully!")
-                        completion(true)
+                Firestore.firestore()
+                    .collection("businesses")
+                    .addDocument(data: businessData) { error in
+                        DispatchQueue.main.async {
+                            self.isSaving = false
+
+                            if let error {
+                                print("❌ Firestore save failed:", error)
+                                completion(false)
+                            } else {
+                                print("✅ Business saved successfully")
+                                completion(true)
+                            }
+                        }
                     }
-                }
             }
         }
     }
 }
+

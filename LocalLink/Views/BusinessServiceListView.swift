@@ -6,7 +6,7 @@ struct BusinessServiceListView: View {
 
     let businessId: String
 
-    @State private var services: [Service] = []
+    @State private var services: [BusinessService] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var listener: ListenerRegistration?
@@ -15,56 +15,48 @@ struct BusinessServiceListView: View {
 
     private let db = Firestore.firestore()
 
-    // MARK: - Body
     var body: some View {
-        NavigationStack {
-            content
-                .navigationTitle("Services")
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button {
-                            showAddService = true
-                        } label: {
-                            Image(systemName: "plus")
-                        }
+        content
+            .navigationTitle("Services")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showAddService = true
+                    } label: {
+                        Image(systemName: "plus")
                     }
                 }
-                .sheet(isPresented: $showAddService) {
-                    NavigationStack {
-                        ServiceFormView(
-                            businessId: businessId,
-                            existingService: nil
-                        )
-                    }
+            }
+            .sheet(isPresented: $showAddService) {
+                NavigationStack {
+                    ServiceFormView(
+                        businessId: businessId,
+                        existingService: nil
+                    )
                 }
-                .onAppear(perform: startListening)
-                .onDisappear {
-                    listener?.remove()
-                    listener = nil
-                }
-        }
+            }
+            .onAppear(perform: startListening)
+            .onDisappear {
+                listener?.remove()
+                listener = nil
+            }
     }
 
-    // MARK: - Content
     @ViewBuilder
     private var content: some View {
-
         if isLoading {
             ProgressView("Loading services…")
         }
-
         else if let errorMessage {
             VStack(spacing: 12) {
                 Text("Couldn’t load services")
                     .font(.headline)
-
                 Text(errorMessage)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
             }
             .padding()
         }
-
         else if services.isEmpty {
             VStack(spacing: 16) {
                 ContentUnavailableView(
@@ -80,7 +72,6 @@ struct BusinessServiceListView: View {
             }
             .padding()
         }
-
         else {
             List {
                 ForEach(services) { service in
@@ -95,7 +86,8 @@ struct BusinessServiceListView: View {
                                 .font(.headline)
 
                             Text("£\(service.price, specifier: "%.2f") • \(service.durationMinutes) mins")
-
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
                         .padding(.vertical, 4)
                     }
@@ -119,16 +111,16 @@ struct BusinessServiceListView: View {
             .addSnapshotListener { snapshot, error in
 
                 if let error {
-                    errorMessage = error.localizedDescription
-                    isLoading = false
+                    self.errorMessage = error.localizedDescription
+                    self.isLoading = false
                     return
                 }
 
-                services = snapshot?.documents.compactMap {
-                    try? $0.data(as: Service.self)
+                self.services = snapshot?.documents.compactMap {
+                    try? $0.data(as: BusinessService.self)
                 } ?? []
 
-                isLoading = false
+                self.isLoading = false
             }
     }
 }

@@ -13,7 +13,6 @@ struct CustomerServiceListView: View {
             else if let error = viewModel.errorMessage {
                 Text(error)
                     .foregroundColor(.red)
-                    .padding()
             }
             else if viewModel.services.isEmpty {
                 ContentUnavailableView(
@@ -26,34 +25,24 @@ struct CustomerServiceListView: View {
                 List(viewModel.services) { service in
                     NavigationLink {
                         CustomerServiceDetailView(
-                            businessId: businessId,   // 🔑 pass through unchanged
+                            businessId: businessId,
                             service: service
                         )
                     } label: {
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading) {
                             Text(service.name)
                                 .font(.headline)
-
-                            if let details = service.details {
-                                Text(details)
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                            }
-
                             Text("£\(service.price, specifier: "%.2f") • \(service.durationMinutes) mins")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
                     }
                 }
-                .listStyle(.plain)
             }
         }
         .navigationTitle("Services")
         .onAppear {
-            print("📡 Loading services for businessId:", businessId)
-            viewModel.loadServices(for: businessId, activeOnly: true)
+            viewModel.loadServices(for: businessId, activeOnly: false) // ✅ IMPORTANT
         }
     }
 }
-

@@ -50,10 +50,6 @@ struct BusinessStaffListView: View {
             UnlockStaffSlotView {
                 unlockStaffSlot()
             }
-            .onAppear {
-                // OPTION 1: Upgrade intent logging
-                print("Upgrade intent: staff slot unlock viewed")
-            }
         }
         .sheet(isPresented: $showAddStaff) {
             AddStaffView(
@@ -90,13 +86,10 @@ struct BusinessStaffListView: View {
                                     .foregroundColor(.secondary)
                             }
 
-                            NavigationLink("Edit availability") {
-                                StaffAvailabilityView(
-                                    businessId: businessId,
-                                    staff: member
-                                )
-                            }
-                            .font(.caption)
+                            // Blueprint B: availability is Firestore-driven, not edited here
+                            Text("Availability managed via schedule")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
                         }
 
                         Spacer()
@@ -179,7 +172,6 @@ struct BusinessStaffListView: View {
             .document(businessId)
             .getDocument { snapshot, _ in
                 if let data = snapshot?.data() {
-                    // Defensive default: 1 free staff slot
                     staffSlotsAllowed = data["staffSlotsAllowed"] as? Int ?? 1
                     staffSlotsPurchased = data["staffSlotsPurchased"] as? Int ?? 0
                 }
@@ -224,4 +216,3 @@ struct BusinessStaffListView: View {
             ])
     }
 }
-

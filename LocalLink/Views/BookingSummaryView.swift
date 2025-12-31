@@ -5,62 +5,94 @@ struct BookingSummaryView: View {
 
     // MARK: - Inputs
     let businessId: String
-    let service: Service
+    let service: BusinessService
     let staff: Staff
-    let date: Date          // selected day
-    let time: Date          // selected start time
+    let date: Date
+    let time: Date
 
     // MARK: - State
-    @State private var isSaving = false
+    @State private var isSubmitting = false
+    @State private var showSuccess = false
     @State private var errorMessage: String?
-    @State private var navigateSuccess = false
 
+    // MARK: - Services
     private let bookingService = BookingService()
 
+    // MARK: - View
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 24) {
 
+            // Header
             Text("Booking Summary")
                 .font(.largeTitle.bold())
 
+            // Details
             VStack(alignment: .leading, spacing: 10) {
-                Text("Service: \(service.name)")
-                Text("Staff: \(staff.name)")
-                Text("Price: £\(service.price, specifier: "%.2f")")
-                Text("Duration: \(service.durationMinutes) minutes")
-                Text("Date: \(dateFormatter.string(from: date))")
-                Text("Time: \(timeFormatter.string(from: time)) – \(timeFormatter.string(from: endTime))")
+                summaryRow(label: "Service", value: service.name)
+                summaryRow(label: "Staff", value: staff.name)
+                summaryRow(
+                    label: "Price",
+                    value: String(format: "£%.2f", service.price)
+                )
+                summaryRow(
+                    label: "Duration",
+                    value: "\(service.durationMinutes) minutes"
+                )
+                summaryRow(
+                    label: "Date",
+                    value: dateFormatter.string(from: date)
+                )
+                summaryRow(
+                    label: "Time",
+                    value: "\(timeFormatter.string(from: time)) – \(timeFormatter.string(from: endTime))"
+                )
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Spacer()
 
+            // Error
             if let errorMessage {
                 Text(errorMessage)
                     .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
             }
 
-            Button(isSaving ? "Confirming…" : "Confirm booking") {
+            // Confirm Button
+            Button {
                 confirmBooking()
+            } label: {
+                if isSubmitting {
+                    ProgressView()
+                } else {
+                    Text("Confirm booking")
+                }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(isSaving)
-
-            NavigationLink(
-                destination: BookingSuccessView(),
-                isActive: $navigateSuccess
-            ) {
-                EmptyView()
-            }
+            .disabled(isSubmitting)
         }
         .padding()
         .navigationTitle("Summary")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: $showSuccess) {
+            BookingSuccessView()
+        }
     }
 
-    // MARK: - Derived
+    // MARK: - Helpers
 
     private var endTime: Date {
         time.addingTimeInterval(TimeInterval(service.durationMinutes * 60))
+    }
+
+    private func summaryRow(label: String, value: String) -> some View {
+        HStack {
+            Text(label + ":")
+                .foregroundColor(.secondary)
+            Spacer()
+            Text(value)
+                .multilineTextAlignment(.trailing)
+        }
     }
 
     // MARK: - Actions
@@ -71,7 +103,9 @@ struct BookingSummaryView: View {
             return
         }
 
-        isSaving = true
+        guard !isSubmitting else { return }
+
+        isSubmitting = true
         errorMessage = nil
 
         bookingService.confirmBooking(
@@ -84,11 +118,10 @@ struct BookingSummaryView: View {
             endTime: endTime
         ) { result in
             DispatchQueue.main.async {
-                isSaving = false
-
+                isSubmitting = false
                 switch result {
                 case .success:
-                    navigateSuccess = true
+                    showSuccess = true
                 case .failure:
                     errorMessage = "Failed to confirm booking. Please try again."
                 }

@@ -40,10 +40,24 @@ final class CustomerBookingsViewModel: ObservableObject {
 
                     let now = Date()
 
-                    self?.upcoming = bookings.filter { $0.endDate >= now }
-                    self?.past = bookings.filter { $0.endDate < now }
+                    // ✅ UPCOMING = confirmed + future
+                    self?.upcoming = bookings
+                        .filter {
+                            $0.status == .confirmed &&
+                            $0.endDate >= now
+                        }
+                        .sorted { $0.startDate < $1.startDate }
+
+                    // ✅ PAST = cancelled OR completed OR already ended
+                    self?.past = bookings
+                        .filter {
+                            $0.status != .confirmed ||
+                            $0.endDate < now
+                        }
+                        .sorted { $0.startDate > $1.startDate }
                 }
             }
     }
 }
+
 

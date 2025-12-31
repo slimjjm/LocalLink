@@ -4,23 +4,17 @@ import FirebaseFirestoreSwift
 
 struct TimeSlotSelectorView: View {
 
-    // MARK: - Inputs
     let businessId: String
-    let service: Service
+    let service: BusinessService
     let date: Date
 
-    // MARK: - State
     @State private var slotToStaff: [Date: [Staff]] = [:]
     @State private var isLoading = true
     @State private var selectedSlot: Date?
+    @State private var hasAnyAvailability = false   // 👈 NEW
 
-    // 🔍 Debug
-    @State private var debugStatus: String = "Starting…"
-
-    // MARK: - Repositories
-    private let hoursRepo = BusinessHoursRepository()
-    private let staffRepo = StaffAvailabilityRepository()
     private let db = Firestore.firestore()
+    private let staffRepo = StaffAvailabilityRepository()
 
     var body: some View {
         VStack(spacing: 16) {
@@ -31,10 +25,26 @@ struct TimeSlotSelectorView: View {
             if isLoading {
                 ProgressView("Loading availability…")
             }
-            else if slotToStaff.isEmpty {
-                Text("No availability on this date")
-                    .foregroundColor(.secondary)
+
+            // ❌ Closed / no staff
+            else if !hasAnyAvailability {
+                ContentUnavailableView(
+                    "No availability",
+                    systemImage: "clock",
+                    description: Text("This business isn’t available on the selected date.")
+                )
             }
+
+            // ❌ Fully booked
+            else if slotToStaff.isEmpty {
+                ContentUnavailableView(
+                    "Fully booked",
+                    systemImage: "calendar.badge.exclamationmark",
+                    description: Text("No slots left on this date. Please choose another day.")
+                )
+            }
+
+            // ✅ Slots available
             else {
                 List(slotToStaff.keys.sorted(), id: \.self) { slot in
                     Button {
@@ -51,6 +61,7 @@ struct TimeSlotSelectorView: View {
                 }
             }
 
+            // Confirm CTA
             if let selectedSlot,
                let staff = slotToStaff[selectedSlot]?.first {
 
@@ -69,183 +80,82 @@ struct TimeSlotSelectorView: View {
             }
 
             Spacer()
-
-            Text(debugStatus)
-                .font(.caption.monospaced())
-                .foregroundColor(.white)
-                .padding(10)
-                .background(Color.black.opacity(0.85))
-                .cornerRadius(8)
         }
         .padding()
         .navigationTitle("Time")
-        .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            loadAvailability()
-        }
+        .onAppear(perform: loadAvailability)
     }
 
-    // MARK: - Core D4 Logic
+    // MARK: - Load availability
 
     private func loadAvailability() {
         isLoading = true
         slotToStaff = [:]
-        debugStatus = "Loading started"
+        hasAnyAvailability = false
 
         let dayKey = weekdayKey(from: date)
+        let group = DispatchGroup()
 
-        hoursRepo.fetchHours(businessId: businessId) { hours in
-            guard
-                let todayHours = hours[dayKey],
-                todayHours.isOpen,
-                let open = todayHours.open,
-                let close = todayHours.close
-            else {
-                debugStatus = "⛔ Business closed"
-                finish()
-                return
-            }
-
-            db.collection("businesses")
-                .document(businessId)
-                .collection("staff")
-                .whereField("isActive", isEqualTo: true)
-                .getDocuments { snapshot, _ in
-
-                    guard let docs = snapshot?.documents else {
-                        debugStatus = "❌ No staff"
-                        finish()
-                        return
-                    }
-
-                    let staffList = docs.compactMap {
-                        try? $0.data(as: Staff.self)
-                    }
-
-                    let group = DispatchGroup()
-
-                    for staff in staffList {
-                        guard let staffId = staff.id else { continue }
-
-                        group.enter()
-
-                        staffRepo.fetchAvailability(
-                            businessId: businessId,
-                            staffId: staffId
-                        ) { availability in
-
-                            guard
-                                let staffDay = availability[dayKey],
-                                staffDay.closed == false,
-                                let staffOpen = staffDay.start,
-                                let staffClose = staffDay.end
-                            else {
-                                group.leave()
-                                return
-                            }
-
-                            let start = max(open, staffOpen)
-                            let end   = min(close, staffClose)
-
-                            let slots = generateSlots(
-                                open: start,
-                                close: end,
-                                duration: service.durationMinutes
-                            )
-
-                            self.fetchBookings(
-                                staffId: staffId,
-                                completion: { bookings in
-
-                                    let availableSlots = slots.filter { slot in
-                                        let slotEnd = slot.addingTimeInterval(
-                                            TimeInterval(service.durationMinutes * 60)
-                                        )
-
-                                        return !bookings.contains {
-                                            overlaps(
-                                                slotStart: slot,
-                                                slotEnd: slotEnd,
-                                                booking: $0
-                                            )
-                                        }
-                                    }
-
-                                    DispatchQueue.main.async {
-                                        for slot in availableSlots {
-                                            slotToStaff[slot, default: []].append(staff)
-                                        }
-                                    }
-
-                                    group.leave()
-                                }
-                            )
-                        }
-                    }
-
-                    group.notify(queue: .main) {
-                        debugStatus = "✅ Availability loaded"
-                        finish()
-                    }
-                }
-        }
-    }
-
-    // MARK: - Booking Blocking
-
-    private func fetchBookings(
-        staffId: String,
-        completion: @escaping ([Booking]) -> Void
-    ) {
-        db.collection("bookings")
-            .whereField("businessId", isEqualTo: businessId)
-            .whereField("staffId", isEqualTo: staffId)
+        db.collection("businesses")
+            .document(businessId)
+            .collection("staff")
+            .whereField("isActive", isEqualTo: true)
             .getDocuments { snapshot, _ in
 
-                let allBookings = snapshot?.documents.compactMap {
-                    try? $0.data(as: Booking.self)
+                let staffList = snapshot?.documents.compactMap {
+                    try? $0.data(as: Staff.self)
                 } ?? []
 
-                let calendar = Calendar.current
+                for staff in staffList {
+                    guard let staffId = staff.id else { continue }
+                    group.enter()
 
-                let sameDayBookings = allBookings.filter {
-                    calendar.isDate($0.startDate, inSameDayAs: date)
+                    staffRepo.fetchAvailability(
+                        businessId: businessId,
+                        staffId: staffId
+                    ) { availability in
+
+                        guard let day = availability[dayKey], !day.closed else {
+                            group.leave()
+                            return
+                        }
+
+                        // 👇 At least one staff member is working
+                        DispatchQueue.main.async {
+                            hasAnyAvailability = true
+                        }
+
+                        let slots = generateSlots(
+                            open: day.open,
+                            close: day.close,
+                            duration: service.durationMinutes
+                        )
+
+                        DispatchQueue.main.async {
+                            for slot in slots {
+                                slotToStaff[slot, default: []].append(staff)
+                            }
+                        }
+
+                        group.leave()
+                    }
                 }
 
-                completion(sameDayBookings)
+                group.notify(queue: .main) {
+                    isLoading = false
+                }
             }
-    }
-
-
-    private func overlaps(
-        slotStart: Date,
-        slotEnd: Date,
-        booking: Booking
-    ) -> Bool {
-        slotStart < booking.endDate && slotEnd > booking.startDate
-    }
-
-    private func finish() {
-        DispatchQueue.main.async {
-            isLoading = false
-        }
     }
 
     // MARK: - Helpers
 
     private func weekdayKey(from date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_GB")
-        formatter.dateFormat = "EEEE"
-        return formatter.string(from: date).lowercased()
+        let f = DateFormatter()
+        f.dateFormat = "EEEE"
+        return f.string(from: date).lowercased()
     }
 
-    private func generateSlots(
-        open: String,
-        close: String,
-        duration: Int
-    ) -> [Date] {
-
+    private func generateSlots(open: String, close: String, duration: Int) -> [Date] {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
 
@@ -255,7 +165,6 @@ struct TimeSlotSelectorView: View {
         else { return [] }
 
         var slots: [Date] = []
-
         var current = Calendar.current.date(
             bySettingHour: Calendar.current.component(.hour, from: openTime),
             minute: Calendar.current.component(.minute, from: openTime),

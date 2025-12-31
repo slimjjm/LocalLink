@@ -1,3 +1,4 @@
+import Foundation
 import FirebaseFirestoreSwift
 
 struct Staff: Identifiable, Codable {
@@ -6,5 +7,6 @@ struct Staff: Identifiable, Codable {
     let isActive: Bool
     let skills: [String]?
 }
+
 
 

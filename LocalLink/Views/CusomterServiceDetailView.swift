@@ -3,7 +3,7 @@ import SwiftUI
 struct CustomerServiceDetailView: View {
 
     let businessId: String
-    let service: Service
+    let service: BusinessService
 
     var body: some View {
         VStack(spacing: 24) {

@@ -1,8 +1,17 @@
+import Foundation
 import FirebaseFirestoreSwift
 
-struct FirestoreBusiness: Identifiable, Codable {
+struct BusinessService: Identifiable, Codable {
+
     @DocumentID var id: String?
-    let businessName: String
-    let address: String
+
+    let name: String
+    let details: String?
+    let price: Double
+    let durationMinutes: Int
+
+    // Optional so older docs decode safely
+    let isActive: Bool?
+    let createdAt: Date?
 }
 

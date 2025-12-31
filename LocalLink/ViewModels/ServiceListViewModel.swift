@@ -4,13 +4,15 @@ import FirebaseFirestoreSwift
 @MainActor
 final class ServiceListViewModel: ObservableObject {
 
-    @Published var services: [Service] = []
+    // MARK: - Published state
+    @Published var services: [BusinessService] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
 
+    // MARK: - Firestore
     private let db = Firestore.firestore()
 
-    func loadServices(for businessId: String, activeOnly: Bool) {
+    func loadServices(for businessId: String, activeOnly: Bool = false) {
         isLoading = true
         errorMessage = nil
 
@@ -19,23 +21,25 @@ final class ServiceListViewModel: ObservableObject {
             .document(businessId)
             .collection("services")
 
+        // 🔒 V2 feature – safe to ignore for now
         if activeOnly {
             query = query.whereField("isActive", isEqualTo: true)
         }
 
         query.getDocuments { [weak self] snapshot, error in
-            DispatchQueue.main.async {
-                self?.isLoading = false
+            guard let self else { return }
 
-                if let error = error {
-                    self?.errorMessage = error.localizedDescription
-                    return
-                }
+            self.isLoading = false
 
-                self?.services = snapshot?.documents.compactMap {
-                    try? $0.data(as: Service.self)
-                } ?? []
+            if let error {
+                self.errorMessage = error.localizedDescription
+                return
             }
+
+            self.services = snapshot?.documents.compactMap {
+                try? $0.data(as: BusinessService.self)
+            } ?? []
         }
     }
 }
+
