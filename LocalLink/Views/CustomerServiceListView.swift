@@ -7,20 +7,30 @@ struct CustomerServiceListView: View {
 
     var body: some View {
         Group {
+
+            // Loading
             if viewModel.isLoading {
                 ProgressView("Loading services…")
             }
+
+            // Error
             else if let error = viewModel.errorMessage {
                 Text(error)
                     .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+                    .padding()
             }
+
+            // Empty state
             else if viewModel.services.isEmpty {
                 ContentUnavailableView(
-                    "No Services",
+                    "No services yet",
                     systemImage: "scissors",
                     description: Text("This business hasn’t added any services yet.")
                 )
             }
+
+            // Services list
             else {
                 List(viewModel.services) { service in
                     NavigationLink {
@@ -29,12 +39,15 @@ struct CustomerServiceListView: View {
                             service: service
                         )
                     } label: {
-                        VStack(alignment: .leading) {
+                        VStack(alignment: .leading, spacing: 4) {
                             Text(service.name)
                                 .font(.headline)
-                            Text("£\(service.price, specifier: "%.2f") • \(service.durationMinutes) mins")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+
+                            Text(
+                                "£\(service.price, specifier: "%.2f") • \(service.durationMinutes) mins"
+                            )
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                         }
                     }
                 }
@@ -42,7 +55,10 @@ struct CustomerServiceListView: View {
         }
         .navigationTitle("Services")
         .onAppear {
-            viewModel.loadServices(for: businessId, activeOnly: false) // ✅ IMPORTANT
+            viewModel.loadServices(
+                for: businessId,
+                activeOnly: false
+            )
         }
     }
 }

@@ -4,6 +4,7 @@ import FirebaseFirestore
 
 struct BusinessOnboardingView: View {
 
+    @EnvironmentObject private var authManager: AuthManager
     @Environment(\.dismiss) private var dismiss
 
     @State private var businessName = ""
@@ -15,14 +16,8 @@ struct BusinessOnboardingView: View {
     var body: some View {
         VStack(spacing: 24) {
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Create your business")
-                    .font(.largeTitle.bold())
-
-                Text("You can change details later.")
-                    .foregroundColor(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Create your business")
+                .font(.largeTitle.bold())
 
             TextField("Business name", text: $businessName)
                 .textFieldStyle(.roundedBorder)
@@ -32,24 +27,31 @@ struct BusinessOnboardingView: View {
                     .foregroundColor(.red)
             }
 
-            Button(isSaving ? "Creating…" : "Create business") {
+            Button {
                 createBusiness()
+            } label: {
+                if isSaving {
+                    ProgressView()
+                } else {
+                    Text("Create business")
+                }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(businessName.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
+            .disabled(
+                businessName.trimmingCharacters(in: .whitespaces).isEmpty ||
+                isSaving
+            )
 
             Spacer()
         }
         .padding()
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
     }
 
-    // MARK: - Firestore
-
+    // MARK: - Create Business
     private func createBusiness() {
+
         guard let uid = Auth.auth().currentUser?.uid else {
-            errorMessage = "You must be logged in."
+            errorMessage = "Signing you in… please try again in a moment."
             return
         }
 
@@ -57,23 +59,27 @@ struct BusinessOnboardingView: View {
         errorMessage = nil
 
         let data: [String: Any] = [
+            "businessName": businessName.trimmingCharacters(in: .whitespaces),
             "ownerId": uid,
-            "name": businessName.trimmingCharacters(in: .whitespaces),
-            "isActive": true,
-            "createdAt": FieldValue.serverTimestamp()
+            "createdAt": FieldValue.serverTimestamp(),
+            "staffSlotsAllowed": 1,
+            "staffSlotsPurchased": 0,
+            "verified": false
         ]
 
-        db.collection("businesses")
-            .addDocument(data: data) { error in
-                DispatchQueue.main.async {
-                    isSaving = false
+        db.collection("businesses").addDocument(data: data) { error in
+            DispatchQueue.main.async {
+                isSaving = false
 
-                    if let error {
-                        errorMessage = error.localizedDescription
-                    } else {
-                        dismiss()
-                    }
+                if let error {
+                    errorMessage = error.localizedDescription
+                } else {
+                    authManager.setRole(.business)
+                    dismiss()
                 }
             }
+        }
     }
 }
+
+

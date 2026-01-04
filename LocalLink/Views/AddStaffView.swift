@@ -8,15 +8,22 @@ struct AddStaffView: View {
     let businessId: String
     let onStaffAdded: () -> Void
 
-    // MARK: - State
+    // MARK: - Environment
     @Environment(\.dismiss) private var dismiss
+
+    // MARK: - State
     @State private var name = ""
     @State private var skillsText = ""
     @State private var isSaving = false
     @State private var errorMessage: String?
 
-    private let db = Firestore.firestore()
+    @State private var showUpgradePrompt = false
 
+    // MARK: - Services
+    private let db = Firestore.firestore()
+    private let staffLimitService = StaffLimitService()
+
+    // MARK: - Body
     var body: some View {
         NavigationStack {
             Form {
@@ -37,31 +44,58 @@ struct AddStaffView: View {
                 }
 
                 Section {
-                    Button(isSaving ? "Saving…" : "Save Staff") {
-                        saveStaff()
+                    Button {
+                        attemptAddStaff()
+                    } label: {
+                        Text(isSaving ? "Saving…" : "Save Staff")
                     }
-                    .disabled(isSaving || name.isEmpty)
+                    .disabled(isSaving || name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
             .navigationTitle("Add Staff")
+            .navigationBarTitleDisplayMode(.inline)
+            .alert(
+                "Staff limit reached",
+                isPresented: $showUpgradePrompt
+            ) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("You’ve reached your current staff limit. Unlock an additional staff slot to add more team members.")
+            }
+        }
+    }
+
+    // MARK: - Flow Control
+
+    private func attemptAddStaff() {
+        isSaving = true
+        errorMessage = nil
+
+        staffLimitService.canAddStaff(businessId: businessId) { canAdd, _, _ in
+            DispatchQueue.main.async {
+                if canAdd {
+                    saveStaff()
+                } else {
+                    isSaving = false
+                    showUpgradePrompt = true
+                }
+            }
         }
     }
 
     // MARK: - Save
-    private func saveStaff() {
-        isSaving = true
-        errorMessage = nil
 
+    private func saveStaff() {
         let skills = skillsText
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
 
         let staff = Staff(
-            name: name,
+            name: name.trimmingCharacters(in: .whitespaces),
             isActive: true,
             skills: skills.isEmpty ? nil : skills
         )
-
 
         do {
             _ = try db
@@ -74,7 +108,7 @@ struct AddStaffView: View {
             dismiss()
 
         } catch {
-            errorMessage = "Failed to save staff"
+            errorMessage = "Failed to save staff member. Please try again."
         }
 
         isSaving = false

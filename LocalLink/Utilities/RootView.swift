@@ -2,20 +2,30 @@ import SwiftUI
 
 struct RootView: View {
 
-    @AppStorage("userType") private var userType: String = ""
+    @EnvironmentObject private var authManager: AuthManager
 
     var body: some View {
-        switch userType {
-        case "customer":
-            CustomerHomeView()
+        Group {
+            switch authManager.flowState {
 
-        case "business":
-            BusinessGateView { businessId in
-                BusinessHomeView(businessId: businessId)
+            case .loading:
+                ProgressView()
+
+            case .unauthenticated:
+                LoginView()
+
+            case .selectingRole:
+                StartSelectionView()
+
+            case .onboardingBusiness:
+                BusinessOnboardingView()
+
+            case .business:
+                BusinessHomeView()
+
+            case .customer:
+                CustomerHomeView()
             }
-
-        default:
-            StartSelectionView()
         }
     }
 }

@@ -16,84 +16,93 @@ struct BusinessServiceListView: View {
     private let db = Firestore.firestore()
 
     var body: some View {
-        content
-            .navigationTitle("Services")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showAddService = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                }
+        Group {
+            // Loading
+            if isLoading {
+                ProgressView("Loading services…")
             }
-            .sheet(isPresented: $showAddService) {
-                NavigationStack {
-                    ServiceFormView(
-                        businessId: businessId,
-                        existingService: nil
+
+            // Error
+            else if let errorMessage {
+                VStack(spacing: 12) {
+                    Text("Couldn’t load services")
+                        .font(.headline)
+
+                    Text(errorMessage)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding()
+            }
+
+            // Empty state
+            else if services.isEmpty {
+                VStack(spacing: 16) {
+                    ContentUnavailableView(
+                        "No services yet",
+                        systemImage: "scissors",
+                        description: Text("Add your first service to start taking bookings.")
                     )
+
+                    Button("Add Service") {
+                        showAddService = true
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
+                .padding()
             }
-            .onAppear(perform: startListening)
-            .onDisappear {
-                listener?.remove()
-                listener = nil
-            }
-    }
 
-    @ViewBuilder
-    private var content: some View {
-        if isLoading {
-            ProgressView("Loading services…")
-        }
-        else if let errorMessage {
-            VStack(spacing: 12) {
-                Text("Couldn’t load services")
-                    .font(.headline)
-                Text(errorMessage)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            .padding()
-        }
-        else if services.isEmpty {
-            VStack(spacing: 16) {
-                ContentUnavailableView(
-                    "No services yet",
-                    systemImage: "scissors",
-                    description: Text("Add your first service to start taking bookings.")
-                )
+            // Services list
+            else {
+                List {
+                    ForEach(services) { service in
+                        NavigationLink {
+                            ServiceFormView(
+                                businessId: businessId,
+                                existingService: service
+                            )
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(service.name)
+                                    .font(.headline)
 
-                Button("Add Service") {
-                    showAddService = true
-                }
-                .buttonStyle(.borderedProminent)
-            }
-            .padding()
-        }
-        else {
-            List {
-                ForEach(services) { service in
-                    NavigationLink {
-                        ServiceFormView(
-                            businessId: businessId,
-                            existingService: service
-                        )
-                    } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(service.name)
-                                .font(.headline)
-
-                            Text("£\(service.price, specifier: "%.2f") • \(service.durationMinutes) mins")
+                                Text(
+                                    "£\(service.price, specifier: "%.2f") • \(service.durationMinutes) mins"
+                                )
                                 .font(.caption)
                                 .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 4)
                         }
-                        .padding(.vertical, 4)
                     }
                 }
+                .listStyle(.plain)
             }
-            .listStyle(.plain)
+        }
+        .navigationTitle("Services")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showAddService = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+            }
+        }
+        .sheet(isPresented: $showAddService) {
+            NavigationStack {
+                ServiceFormView(
+                    businessId: businessId,
+                    existingService: nil
+                )
+            }
+        }
+        .onAppear {
+            startListening()
+        }
+        .onDisappear {
+            listener?.remove()
+            listener = nil
         }
     }
 
@@ -111,16 +120,16 @@ struct BusinessServiceListView: View {
             .addSnapshotListener { snapshot, error in
 
                 if let error {
-                    self.errorMessage = error.localizedDescription
-                    self.isLoading = false
+                    errorMessage = error.localizedDescription
+                    isLoading = false
                     return
                 }
 
-                self.services = snapshot?.documents.compactMap {
+                services = snapshot?.documents.compactMap {
                     try? $0.data(as: BusinessService.self)
                 } ?? []
 
-                self.isLoading = false
+                isLoading = false
             }
     }
 }

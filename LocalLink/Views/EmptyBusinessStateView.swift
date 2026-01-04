@@ -33,7 +33,7 @@ struct EmptyBusinessStateView: View {
             }
             .padding(.top, 10)
 
-            // ✅ REAL back button
+            // ✅ REAL back button (role escape)
             Button {
                 authManager.clearRole()
             } label: {
@@ -41,12 +41,12 @@ struct EmptyBusinessStateView: View {
                     Image(systemName: "chevron.left")
                     Text("Back")
                 }
+                .foregroundColor(.secondary)
             }
-            .foregroundColor(.secondary)
             .padding(.top, 8)
-
-            Spacer()
         }
         .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
+
