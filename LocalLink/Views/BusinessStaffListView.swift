@@ -17,14 +17,21 @@ struct BusinessStaffListView: View {
     @State private var showAddStaff = false
     @State private var isLoading = true
 
+    // A9.2 UI gate + messaging
+    @State private var showLimitReached = false
+    @State private var staffUsed = 0
+    @State private var staffMax = 0
+
+    // MARK: - Services
     private let db = Firestore.firestore()
+    private let staffLimitService = StaffLimitService()
 
     // MARK: - Computed
     private var maxStaffAllowed: Int {
         staffSlotsAllowed + staffSlotsPurchased
     }
 
-    private var canAddStaff: Bool {
+    private var canAddStaffLocal: Bool {
         staff.count < maxStaffAllowed
     }
 
@@ -43,9 +50,7 @@ struct BusinessStaffListView: View {
             }
         }
         .navigationTitle("Staff")
-        .onAppear {
-            loadData()
-        }
+        .onAppear { loadData() }
         .sheet(isPresented: $showUnlockSheet) {
             UnlockStaffSlotView {
                 unlockStaffSlot()
@@ -54,10 +59,14 @@ struct BusinessStaffListView: View {
         .sheet(isPresented: $showAddStaff) {
             AddStaffView(
                 businessId: businessId,
-                onStaffAdded: {
-                    loadData()
-                }
+                onStaffAdded: { loadData() }
             )
+        }
+        .alert("Staff limit reached", isPresented: $showLimitReached) {
+            Button("Upgrade (coming soon)") { }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("You’re using \(staffUsed) of \(staffMax) staff slots. Upgrade to add more team members.")
         }
     }
 
@@ -86,7 +95,6 @@ struct BusinessStaffListView: View {
                                     .foregroundColor(.secondary)
                             }
 
-                            // Blueprint B: availability is Firestore-driven, not edited here
                             Text("Availability managed via schedule")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
@@ -123,15 +131,23 @@ struct BusinessStaffListView: View {
     private var actionSection: some View {
         Section {
             Button {
-                if canAddStaff {
-                    showAddStaff = true
-                } else {
-                    showUnlockSheet = true
+                // A9.2: always confirm against Firestore (not just local state)
+                staffLimitService.fetchLimits(businessId: businessId) { used, max in
+                    DispatchQueue.main.async {
+                        staffUsed = used
+                        staffMax = max
+
+                        if used >= max {
+                            showLimitReached = true
+                        } else {
+                            showAddStaff = true
+                        }
+                    }
                 }
             } label: {
                 Label(
-                    canAddStaff ? "Add Staff Member" : "Unlock Extra Staff Slot",
-                    systemImage: canAddStaff ? "person.badge.plus" : "lock.fill"
+                    canAddStaffLocal ? "Add Staff Member" : "Unlock Extra Staff Slot",
+                    systemImage: canAddStaffLocal ? "person.badge.plus" : "lock.fill"
                 )
             }
         }
@@ -153,14 +169,10 @@ struct BusinessStaffListView: View {
         let group = DispatchGroup()
 
         group.enter()
-        loadStaffLimits {
-            group.leave()
-        }
+        loadStaffLimits { group.leave() }
 
         group.enter()
-        loadStaff {
-            group.leave()
-        }
+        loadStaff { group.leave() }
 
         group.notify(queue: .main) {
             isLoading = false
@@ -201,10 +213,7 @@ struct BusinessStaffListView: View {
             }
     }
 
-    private func updateStaffActiveStatus(
-        staffId: String?,
-        isActive: Bool
-    ) {
+    private func updateStaffActiveStatus(staffId: String?, isActive: Bool) {
         guard let staffId else { return }
 
         db.collection("businesses")
@@ -216,3 +225,4 @@ struct BusinessStaffListView: View {
             ])
     }
 }
+

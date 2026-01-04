@@ -4,10 +4,12 @@ final class StaffLimitService {
 
     private let db = Firestore.firestore()
 
-    func canAddStaff(
+    /// Returns how many staff are currently used vs max allowed
+    func fetchLimits(
         businessId: String,
-        completion: @escaping (Bool, Int, Int) -> Void
+        completion: @escaping (_ used: Int, _ max: Int) -> Void
     ) {
+
         let businessRef = db.collection("businesses").document(businessId)
         let staffRef = businessRef.collection("staff")
 
@@ -19,8 +21,8 @@ final class StaffLimitService {
             let maxAllowed = allowed + purchased
 
             staffRef.getDocuments { staffSnap, _ in
-                let currentCount = staffSnap?.documents.count ?? 0
-                completion(currentCount < maxAllowed, currentCount, maxAllowed)
+                let used = staffSnap?.documents.count ?? 0
+                completion(used, maxAllowed)
             }
         }
     }

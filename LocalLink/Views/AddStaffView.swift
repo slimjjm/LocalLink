@@ -71,9 +71,9 @@ struct AddStaffView: View {
         isSaving = true
         errorMessage = nil
 
-        staffLimitService.canAddStaff(businessId: businessId) { canAdd, _, _ in
+        staffLimitService.fetchLimits(businessId: businessId) { used, max in
             DispatchQueue.main.async {
-                if canAdd {
+                if used < max {
                     saveStaff()
                 } else {
                     isSaving = false
@@ -82,6 +82,7 @@ struct AddStaffView: View {
             }
         }
     }
+
 
     // MARK: - Save
 

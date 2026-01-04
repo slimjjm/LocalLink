@@ -5,11 +5,12 @@ struct BusinessHomeView: View {
 
     @EnvironmentObject private var authManager: AuthManager
 
-    // Derived once, safely
+    // MARK: - Derived
     private var businessId: String? {
         Auth.auth().currentUser?.uid
     }
 
+    // MARK: - Body
     var body: some View {
         NavigationStack {
             Group {
@@ -26,19 +27,17 @@ struct BusinessHomeView: View {
                         try? Auth.auth().signOut()
                         authManager.clearRole()
                     }
-
                 }
             }
         }
     }
 
-
-    // MARK: - Main content
-
+    // MARK: - Main Content
     private func content(businessId: String) -> some View {
         ScrollView {
             VStack(spacing: 28) {
                 headerSection
+                staffUsageTile(businessId: businessId)   // 🔑 A9.3 monetisation surface
                 menuGrid(businessId: businessId)
             }
             .padding()
@@ -47,7 +46,6 @@ struct BusinessHomeView: View {
     }
 
     // MARK: - Header
-
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Welcome back")
@@ -58,11 +56,47 @@ struct BusinessHomeView: View {
                 .font(.largeTitle.bold())
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.bottom, 4)
+    }
+
+    // MARK: - Staff Usage Tile (A9.3)
+    private func staffUsageTile(businessId: String) -> some View {
+        NavigationLink {
+            BusinessStaffListView(businessId: businessId)
+        } label: {
+            HStack(spacing: 16) {
+
+                Image(systemName: "person.2.fill")
+                    .font(.title2)
+                    .foregroundColor(.accentColor)
+                    .frame(width: 44, height: 44)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.accentColor.opacity(0.12))
+                    )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Staff")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Text("Manage staff & availability")
+                        .font(.headline)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .foregroundColor(.secondary)
+            }
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(Color(.secondarySystemBackground))
+            )
+        }
     }
 
     // MARK: - Menu Grid
-
     private func menuGrid(businessId: String) -> some View {
         LazyVGrid(
             columns: [
@@ -78,11 +112,6 @@ struct BusinessHomeView: View {
                 menuTile(title: "Bookings", icon: "calendar")
             }
 
-            NavigationLink {
-                BusinessStaffListView(businessId: businessId)
-            } label: {
-                menuTile(title: "Staff", icon: "person.2")
-            }
 
             NavigationLink {
                 OpeningHoursView(businessId: businessId)
@@ -105,8 +134,7 @@ struct BusinessHomeView: View {
         }
     }
 
-    // MARK: - Tile
-
+    // MARK: - Tile UI
     private func menuTile(title: String, icon: String) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 8) {
@@ -130,9 +158,12 @@ struct BusinessHomeView: View {
         .background(
             RoundedRectangle(cornerRadius: 18)
                 .fill(Color(.secondarySystemBackground))
-                .shadow(color: Color.black.opacity(0.05),
-                        radius: 6, x: 0, y: 4)
+                .shadow(
+                    color: Color.black.opacity(0.05),
+                    radius: 6,
+                    x: 0,
+                    y: 4
+                )
         )
     }
 }
-
