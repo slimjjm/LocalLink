@@ -38,7 +38,7 @@ final class AuthManager: ObservableObject {
         }
     }
 
-    // MARK: - Public API (THIS is what StartSelectionView calls)
+    // MARK: - Public API
 
     func beginBusinessOnboarding() {
         flowState = .onboardingBusiness
@@ -46,7 +46,6 @@ final class AuthManager: ObservableObject {
 
     func completeBusinessOnboarding() {
         setRole(.business)
-        flowState = .business
     }
 
     func setRole(_ role: UserRole) {
@@ -59,13 +58,21 @@ final class AuthManager: ObservableObject {
         flowState = role == .business ? .business : .customer
     }
 
+    /// ✅ FIXED: this is a REAL logout
     func clearRole() {
-        flowState = .selectingRole
+        do {
+            try Auth.auth().signOut()
+            flowState = .unauthenticated
+        } catch {
+            print("Logout failed:", error)
+        }
     }
 
     // MARK: - Private
 
     private func loadRole(for uid: String) {
+        flowState = .loading
+
         db.collection("users")
             .document(uid)
             .getDocument { snapshot, _ in

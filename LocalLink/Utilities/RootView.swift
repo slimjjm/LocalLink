@@ -18,13 +18,19 @@ struct RootView: View {
                 StartSelectionView()
 
             case .onboardingBusiness:
-                BusinessOnboardingView()
+                NavigationStack {
+                    BusinessOnboardingView()
+                }
 
             case .business:
-                BusinessHomeView()
+                NavigationStack {
+                    BusinessHomeView()
+                }
 
             case .customer:
-                CustomerHomeView()
+                NavigationStack {
+                    CustomerHomeView()
+                }
             }
         }
     }

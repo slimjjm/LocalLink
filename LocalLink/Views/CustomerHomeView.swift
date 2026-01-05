@@ -1,8 +1,10 @@
 import SwiftUI
+import FirebaseAuth
 
 struct CustomerHomeView: View {
 
     @EnvironmentObject private var authManager: AuthManager
+    @AppStorage("userType") private var userType = ""
 
     var body: some View {
         ScrollView {
@@ -24,6 +26,10 @@ struct CustomerHomeView: View {
                     authManager.clearRole()
                 }
             }
+        }
+        .onAppear {
+            print("DEBUG — userType:", userType)
+            print("DEBUG — firebase user:", Auth.auth().currentUser?.uid ?? "nil")
         }
     }
 
