@@ -33,3 +33,16 @@ extension Date {
         Calendar.current.date(byAdding: .minute, value: minutes, to: self) ?? self
     }
 }
+extension Date {
+
+    /// Lowercased weekday key used for staff availability maps
+    /// e.g. "monday", "tuesday"
+    var weekdayKey: String {
+        weekdayName.lowercased()
+    }
+
+    /// Alias used by booking validator
+    func settingTime(from timeString: String) -> Date {
+        atTime(timeString) ?? self
+    }
+}

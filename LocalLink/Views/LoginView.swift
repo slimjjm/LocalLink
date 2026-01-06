@@ -3,60 +3,60 @@ import FirebaseAuth
 
 struct LoginView: View {
 
-    @EnvironmentObject private var authManager: AuthManager
+    @EnvironmentObject private var nav: NavigationState
 
     @State private var email = ""
     @State private var password = ""
-    @State private var isLoading = false
     @State private var errorMessage: String?
-
-    @State private var showRegister = false
+    @State private var isLoading = false
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
+        VStack(spacing: 24) {
 
-                Text("Login")
-                    .font(.largeTitle.bold())
+            Spacer()
 
+            Text("Welcome back")
+                .font(.largeTitle.bold())
+
+            VStack(spacing: 16) {
                 TextField("Email", text: $email)
                     .keyboardType(.emailAddress)
+                    .textContentType(.emailAddress)
                     .autocapitalization(.none)
-                    .textFieldStyle(.roundedBorder)
+                    .padding()
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(12)
 
                 SecureField("Password", text: $password)
-                    .textFieldStyle(.roundedBorder)
-
-                if let errorMessage {
-                    Text(errorMessage)
-                        .foregroundColor(.red)
-                        .multilineTextAlignment(.center)
-                }
-
-                Button {
-                    login()
-                } label: {
-                    if isLoading {
-                        ProgressView()
-                    } else {
-                        Text("Log in")
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(email.isEmpty || password.isEmpty || isLoading)
-
-                Button("Create an account") {
-                    showRegister = true
-                }
-                .padding(.top, 8)
-
-                Spacer()
+                    .padding()
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(12)
             }
-            .padding()
-            .navigationDestination(isPresented: $showRegister) {
-                RegisterView()
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
             }
+
+            Button {
+                login()
+            } label: {
+                if isLoading {
+                    ProgressView()
+                } else {
+                    Text("Log in")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isLoading)
+
+            Spacer()
         }
+        .padding()
+        .navigationTitle("Login")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     // MARK: - Login
@@ -65,14 +65,22 @@ struct LoginView: View {
         errorMessage = nil
         isLoading = true
 
-        Auth.auth().signIn(withEmail: email, password: password) { _, error in
+        Auth.auth().signIn(
+            withEmail: email.trimmingCharacters(in: .whitespaces),
+            password: password
+        ) { _, error in
             DispatchQueue.main.async {
                 isLoading = false
 
                 if let error {
                     errorMessage = error.localizedDescription
+                    return
                 }
+
+                // ✅ Single source of truth navigation
+                nav.setRoot(.customerHome)
             }
         }
     }
 }
+

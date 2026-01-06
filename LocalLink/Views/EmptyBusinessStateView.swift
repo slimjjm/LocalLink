@@ -2,8 +2,6 @@ import SwiftUI
 
 struct EmptyBusinessStateView: View {
 
-    @EnvironmentObject private var authManager: AuthManager
-
     var body: some View {
         VStack(spacing: 20) {
 
@@ -32,18 +30,6 @@ struct EmptyBusinessStateView: View {
                     .cornerRadius(12)
             }
             .padding(.top, 10)
-
-            // ✅ REAL back button (role escape)
-            Button {
-                authManager.clearRole()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.left")
-                    Text("Back")
-                }
-                .foregroundColor(.secondary)
-            }
-            .padding(.top, 8)
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)

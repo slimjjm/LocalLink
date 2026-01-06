@@ -1,10 +1,6 @@
 import SwiftUI
-import FirebaseAuth
 
 struct CustomerHomeView: View {
-
-    @EnvironmentObject private var authManager: AuthManager
-    @AppStorage("userType") private var userType = ""
 
     var body: some View {
         ScrollView {
@@ -13,6 +9,7 @@ struct CustomerHomeView: View {
                 headerSection
                 primaryAction
                 secondaryActions
+                settingsLink
                 legalSection
             }
             .padding()
@@ -20,17 +17,6 @@ struct CustomerHomeView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("LocalLink")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Log out", role: .destructive) {
-                    authManager.clearRole()
-                }
-            }
-        }
-        .onAppear {
-            print("DEBUG — userType:", userType)
-            print("DEBUG — firebase user:", Auth.auth().currentUser?.uid ?? "nil")
-        }
     }
 
     // MARK: - Header
@@ -76,6 +62,26 @@ struct CustomerHomeView: View {
             HStack {
                 Image(systemName: "calendar")
                 Text("My bookings")
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+            .padding()
+            .background(Color(.secondarySystemBackground))
+            .cornerRadius(14)
+        }
+    }
+
+    // MARK: - Settings
+
+    private var settingsLink: some View {
+        NavigationLink {
+            SettingsView()
+        } label: {
+            HStack {
+                Image(systemName: "gearshape")
+                Text("Settings")
                 Spacer()
                 Image(systemName: "chevron.right")
                     .font(.footnote)

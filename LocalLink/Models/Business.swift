@@ -1,12 +1,15 @@
 import Foundation
-import CoreLocation
+import FirebaseFirestore
+import FirebaseFirestoreSwift
 
-struct Business: Identifiable {
-    var id: String
-    var name: String
-    var openingHours: String
-    var contactNumber: String
-    var logoURL: String
-    var latitude: Double
-    var longitude: Double
+struct Business: Identifiable, Codable {
+
+    @DocumentID var id: String?
+
+    let businessName: String
+    let address: String?        // ✅ optional for now
+    let isActive: Bool
+    let verified: Bool
+    let createdAt: Timestamp
 }
+

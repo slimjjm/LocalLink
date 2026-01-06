@@ -2,18 +2,18 @@ import SwiftUI
 
 struct BookingSuccessView: View {
 
-    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var nav: NavigationState
 
     var body: some View {
         VStack(spacing: 28) {
 
-            Spacer()
-
+            // Success icon
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 72))
                 .foregroundColor(.green)
 
-            VStack(spacing: 8) {
+            // Main message
+            VStack(spacing: 10) {
                 Text("Booking confirmed")
                     .font(.largeTitle.bold())
 
@@ -21,38 +21,29 @@ struct BookingSuccessView: View {
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
 
-                Text("You’ll find the details in My bookings.")
+                Text("Taking you back to My Bookings…")
                     .font(.footnote)
                     .foregroundColor(.secondary)
             }
 
-            Button {
-                dismissToRoot()
-            } label: {
-                HStack {
-                    Text("View my bookings")
-                        .font(.headline)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.footnote)
-                }
-                .padding()
-            }
-            .buttonStyle(.borderedProminent)
-            .padding(.top, 12)
-
             Spacer()
+
+            // Optional secondary action (fast exit)
+            Button {
+                nav.path.append(AppRoute.customerHome)
+            } label: {
+                Text("View my bookings")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+
         }
         .padding()
         .navigationBarBackButtonHidden(true)
-    }
-
-    // MARK: - Navigation
-
-    private func dismissToRoot() {
-        dismiss()
-        dismiss()
-        dismiss()
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                nav.path.append(AppRoute.customerHome)
+            }
+        }
     }
 }
-

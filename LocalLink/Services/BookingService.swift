@@ -8,34 +8,51 @@ final class BookingService {
     func confirmBooking(
         businessId: String,
         customerId: String,
+
         service: BusinessService,
         staff: Staff,
+
+        location: String,
+
         date: Date,
         startTime: Date,
         endTime: Date,
+
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
 
+        // Validate IDs
         guard
             let serviceId = service.id,
             let staffId = staff.id
         else {
-            completion(.failure(NSError(
-                domain: "BookingService",
-                code: 0,
-                userInfo: [NSLocalizedDescriptionKey: "Missing service or staff ID"]
-            )))
+            completion(
+                .failure(
+                    NSError(
+                        domain: "BookingService",
+                        code: 0,
+                        userInfo: [
+                            NSLocalizedDescriptionKey:
+                                "Missing service or staff ID"
+                        ]
+                    )
+                )
+            )
             return
         }
 
+        // Create booking snapshot
         let booking = Booking(
             businessId: businessId,
             customerId: customerId,
 
+            location: location,
+            
             serviceId: serviceId,
             serviceName: service.name,
             serviceDurationMinutes: service.durationMinutes,
             price: service.price,
+            
 
             staffId: staffId,
             staffName: staff.name,
@@ -48,7 +65,11 @@ final class BookingService {
             createdAt: Date()
         )
 
-        bookingRepo.createBooking(booking, completion: completion)
+        // Persist
+        bookingRepo.createBooking(
+            booking,
+            completion: completion
+        )
     }
 
     // MARK: - Cancel (Customer)

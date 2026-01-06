@@ -5,20 +5,29 @@ final class BookingRepository {
 
     private let db = Firestore.firestore()
 
-    // MARK: - Create
+    // MARK: - Create (CORRECT + RELIABLE)
 
     func createBooking(
         _ booking: Booking,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        do {
-            _ = try db
-                .collection("bookings")
-                .addDocument(from: booking)
 
-            completion(.success(()))
+        let ref = db.collection("bookings").document()
+
+        do {
+            try ref.setData(from: booking) { error in
+                DispatchQueue.main.async {
+                    if let error {
+                        completion(.failure(error))
+                    } else {
+                        completion(.success(()))
+                    }
+                }
+            }
         } catch {
-            completion(.failure(error))
+            DispatchQueue.main.async {
+                completion(.failure(error))
+            }
         }
     }
 
@@ -33,10 +42,12 @@ final class BookingRepository {
             .updateData([
                 "status": BookingStatus.cancelledByCustomer.rawValue
             ]) { error in
-                if let error {
-                    completion(.failure(error))
-                } else {
-                    completion(.success(()))
+                DispatchQueue.main.async {
+                    if let error {
+                        completion(.failure(error))
+                    } else {
+                        completion(.success(()))
+                    }
                 }
             }
     }
@@ -52,14 +63,13 @@ final class BookingRepository {
             .updateData([
                 "status": BookingStatus.cancelledByBusiness.rawValue
             ]) { error in
-                if let error {
-                    completion(.failure(error))
-                } else {
-                    completion(.success(()))
+                DispatchQueue.main.async {
+                    if let error {
+                        completion(.failure(error))
+                    } else {
+                        completion(.success(()))
+                    }
                 }
             }
     }
 }
-
-
-

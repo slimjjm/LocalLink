@@ -1,35 +1,33 @@
+import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
-import SwiftUI
 
 @MainActor
 final class AuthManager: ObservableObject {
 
-    enum FlowState {
-        case loading
-        case unauthenticated
-        case selectingRole
-        case onboardingBusiness
-        case business
+    enum UserRole: String {
         case customer
+        case business
     }
 
-    @Published var flowState: FlowState = .loading
+    @Published private(set) var role: UserRole?
+
+    @AppStorage("userRole") private var storedRole: String?
 
     private let db = Firestore.firestore()
     private var authHandle: AuthStateDidChangeListenerHandle?
 
+    // MARK: - Init
+
     init() {
-        authHandle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
-            guard let self else { return }
-
-            guard let user else {
-                self.flowState = .unauthenticated
-                return
-            }
-
-            self.loadRole(for: user.uid)
+        // Restore role instantly on launch
+        if let storedRole,
+           let role = UserRole(rawValue: storedRole) {
+            self.role = role
         }
+
+        // Listen for auth changes (future-proofing)
+        authHandle = Auth.auth().addStateDidChangeListener { _, _ in }
     }
 
     deinit {
@@ -38,54 +36,43 @@ final class AuthManager: ObservableObject {
         }
     }
 
-    // MARK: - Public API
-
-    func beginBusinessOnboarding() {
-        flowState = .onboardingBusiness
-    }
-
-    func completeBusinessOnboarding() {
-        setRole(.business)
-    }
+    // MARK: - Role Management (APP SESSION)
 
     func setRole(_ role: UserRole) {
-        guard let uid = Auth.auth().currentUser?.uid else { return }
+        self.role = role
+        self.storedRole = role.rawValue
 
-        db.collection("users")
-            .document(uid)
-            .setData(["role": role.rawValue], merge: true)
-
-        flowState = role == .business ? .business : .customer
+        // Fire-and-forget backend sync
+        syncRoleToFirestore(role)
     }
 
-    /// ✅ FIXED: this is a REAL logout
     func clearRole() {
+        self.role = nil
+        self.storedRole = nil
+    }
+
+    // MARK: - Firebase Logout (explicit)
+
+    func logout() {
+        clearRole()
         do {
             try Auth.auth().signOut()
-            flowState = .unauthenticated
         } catch {
             print("Logout failed:", error)
         }
     }
 
-    // MARK: - Private
+    // MARK: - Firestore Sync (non-blocking)
 
-    private func loadRole(for uid: String) {
-        flowState = .loading
+    private func syncRoleToFirestore(_ role: UserRole) {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
 
         db.collection("users")
             .document(uid)
-            .getDocument { snapshot, _ in
-                let role = snapshot?.data()?["role"] as? String
-
-                DispatchQueue.main.async {
-                    if let role, let parsed = UserRole(rawValue: role) {
-                        self.flowState = parsed == .business ? .business : .customer
-                    } else {
-                        self.flowState = .selectingRole
-                    }
-                }
-            }
+            .setData(
+                ["role": role.rawValue],
+                merge: true
+            )
     }
 }
 

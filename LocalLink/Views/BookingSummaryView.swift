@@ -1,64 +1,51 @@
 import SwiftUI
 import FirebaseAuth
+import FirebaseFirestore
+import FirebaseFirestoreSwift
 
 struct BookingSummaryView: View {
 
-    // MARK: - Inputs
+    // MARK: - Inputs (IDs only)
     let businessId: String
-    let service: BusinessService
-    let staff: Staff
+    let serviceId: String
+    let staffId: String
     let date: Date
     let time: Date
 
+    // MARK: - Environment
+    @EnvironmentObject private var nav: NavigationState
+
     // MARK: - State
+    @State private var service: BusinessService?
+    @State private var staff: Staff?
+    @State private var location: String?
+
     @State private var isSubmitting = false
-    @State private var showSuccess = false
     @State private var errorMessage: String?
 
     // MARK: - Services
     private let bookingService = BookingService()
+    private let db = Firestore.firestore()
 
     // MARK: - View
     var body: some View {
         VStack(spacing: 24) {
 
-            // Header
             Text("Booking Summary")
                 .font(.largeTitle.bold())
 
-            // Details
-            VStack(alignment: .leading, spacing: 10) {
-                summaryRow(label: "Service", value: service.name)
-                summaryRow(label: "Staff", value: staff.name)
-                summaryRow(
-                    label: "Price",
-                    value: String(format: "£%.2f", service.price)
-                )
-                summaryRow(
-                    label: "Duration",
-                    value: "\(service.durationMinutes) minutes"
-                )
-                summaryRow(
-                    label: "Date",
-                    value: dateFormatter.string(from: date)
-                )
-                summaryRow(
-                    label: "Time",
-                    value: "\(timeFormatter.string(from: time)) – \(timeFormatter.string(from: endTime))"
-                )
+            if let service, let staff, let location {
+                summary(service: service, staff: staff, location: location)
+            } else {
+                ProgressView("Loading details…")
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Spacer()
-
-            // Error
             if let errorMessage {
                 Text(errorMessage)
                     .foregroundColor(.red)
                     .multilineTextAlignment(.center)
             }
 
-            // Confirm Button
             Button {
                 confirmBooking()
             } label: {
@@ -66,80 +53,145 @@ struct BookingSummaryView: View {
                     ProgressView()
                 } else {
                     Text("Confirm booking")
+                        .frame(maxWidth: .infinity)
                 }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(isSubmitting)
+            .disabled(
+                isSubmitting ||
+                service == nil ||
+                staff == nil ||
+                location == nil
+            )
         }
         .padding()
         .navigationTitle("Summary")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(isPresented: $showSuccess) {
-            BookingSuccessView()
+        .onAppear {
+            loadData()
         }
     }
 
-    // MARK: - Helpers
-
-    private var endTime: Date {
-        time.addingTimeInterval(TimeInterval(service.durationMinutes * 60))
+    // MARK: - Summary UI
+    private func summary(
+        service: BusinessService,
+        staff: Staff,
+        location: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            row("Service", service.name)
+            row("Staff", staff.name)
+            row("Location", location)
+            row("Price", String(format: "£%.2f", service.price))
+            row("Duration", "\(service.durationMinutes) mins")
+            row("Date", date.formatted(date: .long, time: .omitted))
+            row("Time", time.formatted(date: .omitted, time: .shortened))
+        }
     }
 
-    private func summaryRow(label: String, value: String) -> some View {
+    private func row(_ label: String, _ value: String) -> some View {
         HStack {
-            Text(label + ":")
-                .foregroundColor(.secondary)
+            Text(label)
             Spacer()
             Text(value)
+                .foregroundColor(.secondary)
                 .multilineTextAlignment(.trailing)
         }
     }
 
-    // MARK: - Actions
+    // MARK: - Data loading
+    private func loadData() {
 
+        // Service
+        db.collection("businesses")
+            .document(businessId)
+            .collection("services")
+            .document(serviceId)
+            .getDocument { snapshot, _ in
+                DispatchQueue.main.async {
+                    self.service = try? snapshot?.data(as: BusinessService.self)
+                }
+            }
+
+        // Staff
+        db.collection("businesses")
+            .document(businessId)
+            .collection("staff")
+            .document(staffId)
+            .getDocument { snapshot, _ in
+                DispatchQueue.main.async {
+                    self.staff = try? snapshot?.data(as: Staff.self)
+                }
+            }
+
+        // Business location
+        db.collection("businesses")
+            .document(businessId)
+            .getDocument { snapshot, _ in
+                DispatchQueue.main.async {
+                    self.location = snapshot?.get("address") as? String
+                }
+            }
+    }
+
+    // MARK: - Booking
     private func confirmBooking() {
-        guard let customerId = Auth.auth().currentUser?.uid else {
-            errorMessage = "You must be logged in to book."
-            return
-        }
+        guard let service, let staff, let location else { return }
 
-        guard !isSubmitting else { return }
-
-        isSubmitting = true
         errorMessage = nil
+        isSubmitting = true
 
-        bookingService.confirmBooking(
-            businessId: businessId,
-            customerId: customerId,
-            service: service,
-            staff: staff,
-            date: date,
-            startTime: time,
-            endTime: endTime
-        ) { result in
-            DispatchQueue.main.async {
-                isSubmitting = false
-                switch result {
-                case .success:
-                    showSuccess = true
-                case .failure:
-                    errorMessage = "Failed to confirm booking. Please try again."
+        ensureUserId { uid in
+            let endTime = Calendar.current.date(
+                byAdding: .minute,
+                value: service.durationMinutes,
+                to: time
+            )!
+
+            bookingService.confirmBooking(
+                businessId: businessId,
+                customerId: uid,
+                service: service,
+                staff: staff,
+                location: location,
+                date: date,
+                startTime: time,
+                endTime: endTime
+            ) { result in
+                DispatchQueue.main.async {
+                    self.isSubmitting = false
+
+                    switch result {
+                    case .success:
+                        self.nav.path.append(AppRoute.bookingSuccess)
+
+
+                    case .failure(let error):
+                        self.errorMessage = error.localizedDescription
+                    }
                 }
             }
         }
     }
 
-    // MARK: - Formatters
+    // MARK: - Auth
+    private func ensureUserId(completion: @escaping (String) -> Void) {
+        if let uid = Auth.auth().currentUser?.uid {
+            completion(uid)
+            return
+        }
 
-    private var dateFormatter: DateFormatter {
-        let df = DateFormatter()
-        df.dateStyle = .medium
-        return df
-    }
-
-    private var timeFormatter: DateFormatter {
-        let df = DateFormatter()
-        df.timeStyle = .short
-        return df
+        Auth.auth().signInAnonymously { result, error in
+            DispatchQueue.main.async {
+                if let uid = result?.user.uid {
+                    completion(uid)
+                } else {
+                    self.isSubmitting = false
+                    self.errorMessage =
+                        error?.localizedDescription ?? "Unable to sign in."
+                }
+            }
+        }
     }
 }
+

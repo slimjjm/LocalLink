@@ -1,92 +1,54 @@
 import SwiftUI
 import FirebaseAuth
-import UIKit
 
 struct SettingsView: View {
 
-    @AppStorage("userType") private var userType = ""
-
     var body: some View {
         List {
-
-            // MARK: - Legal
-            Section(header: Text("Legal")) {
-
-                settingsLink(
-                    title: "Privacy Policy",
-                    url: "https://locallinkapp.co.uk/privacy"
-                )
-
-                settingsLink(
-                    title: "Terms & Conditions",
-                    url: "https://locallinkapp.co.uk/terms"
-                )
-            }
-
-            // MARK: - Support
-            Section(header: Text("Support")) {
-
-                Button {
-                    openSupportEmail()
-                } label: {
-                    HStack {
-                        Text("Contact Support")
-                        Spacer()
-                        Image(systemName: "envelope")
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-
-            // MARK: - Account
-            Section {
-
-                Button(role: .destructive) {
-                    logOut()
-                } label: {
-                    HStack {
-                        Text("Log out")
-                        Spacer()
-                        Image(systemName: "rectangle.portrait.and.arrow.right")
-                    }
-                }
-            }
+            accountSection
+            supportSection
+            signOutSection
         }
         .navigationTitle("Settings")
     }
 
-    // MARK: - Helpers
-
-    private func settingsLink(title: String, url: String) -> some View {
-        Link(destination: URL(string: url)!) {
-            HStack {
-                Text(title)
-                Spacer()
-                Image(systemName: "arrow.up.right.square")
-                    .foregroundColor(.secondary)
+    // MARK: - Account (USER level, not business)
+    private var accountSection: some View {
+        Section("Account") {
+            NavigationLink {
+                ProfileView()
+            } label: {
+                Label("Your account", systemImage: "person")
             }
         }
     }
 
-    private func openSupportEmail() {
-        let email = "founder@locallinkapp.co.uk"
-        let subject = "LocalLink App Support"
-        let body = ""
+    // MARK: - Support & Legal
+    private var supportSection: some View {
+        Section("Support") {
 
-        let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        let encodedBody = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+            Link(destination: URL(string: "https://locallinkapp.co.uk/privacy")!) {
+                Label("Privacy Policy", systemImage: "lock.shield")
+            }
 
-        let mailtoString = "mailto:\(email)?subject=\(encodedSubject)&body=\(encodedBody)"
+            Link(destination: URL(string: "https://locallinkapp.co.uk/terms")!) {
+                Label("Terms & Conditions", systemImage: "doc.text")
+            }
 
-        if let url = URL(string: mailtoString),
-           UIApplication.shared.canOpenURL(url) {
-            UIApplication.shared.open(url)
+            Link(destination: URL(string: "https://locallinkapp.co.uk/contact")!) {
+                Label("Contact us", systemImage: "envelope")
+            }
         }
     }
 
-    private func logOut() {
-        try? Auth.auth().signOut()
-        userType = ""
+    // MARK: - Sign out
+    private var signOutSection: some View {
+        Section {
+            Button(role: .destructive) {
+                try? Auth.auth().signOut()
+            } label: {
+                Label("Sign out", systemImage: "arrow.backward.circle")
+            }
+        }
     }
 }
-

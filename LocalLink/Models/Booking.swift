@@ -7,7 +7,7 @@ struct Booking: Identifiable, Codable {
 
     let businessId: String
     let customerId: String
-
+    let location: String
     let serviceId: String
     let serviceName: String
     let serviceDurationMinutes: Int

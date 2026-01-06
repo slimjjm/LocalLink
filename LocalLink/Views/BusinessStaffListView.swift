@@ -42,6 +42,10 @@ struct BusinessStaffListView: View {
                 ProgressView("Loading staff…")
             } else {
                 List {
+
+                    // ✅ NEW: Schedule section (C8 entry point)
+                    scheduleSection
+
                     staffSection
                     actionSection
                     usageSection
@@ -71,6 +75,19 @@ struct BusinessStaffListView: View {
     }
 
     // MARK: - Sections
+
+    // ✅ NEW SECTION
+    private var scheduleSection: some View {
+        Section {
+            NavigationLink {
+                StaffScheduleView(businessId: businessId)
+            } label: {
+                Label("Schedule", systemImage: "calendar.day.timeline.left")
+            }
+        } footer: {
+            Text("View bookings and free gaps for each staff member.")
+        }
+    }
 
     private var staffSection: some View {
         Section(header: Text("Staff Members")) {

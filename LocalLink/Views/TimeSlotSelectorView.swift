@@ -4,18 +4,25 @@ import FirebaseFirestoreSwift
 
 struct TimeSlotSelectorView: View {
 
+    // MARK: - Inputs
     let businessId: String
     let service: BusinessService
     let date: Date
 
+    // MARK: - Environment
+    @EnvironmentObject private var nav: NavigationState
+
+    // MARK: - State
     @State private var slotToStaff: [Date: [Staff]] = [:]
     @State private var isLoading = true
     @State private var selectedSlot: Date?
-    @State private var hasAnyAvailability = false   // 👈 NEW
+    @State private var hasAnyAvailability = false
 
+    // MARK: - Services
     private let db = Firestore.firestore()
     private let staffRepo = StaffAvailabilityRepository()
 
+    // MARK: - View
     var body: some View {
         VStack(spacing: 16) {
 
@@ -26,7 +33,7 @@ struct TimeSlotSelectorView: View {
                 ProgressView("Loading availability…")
             }
 
-            // ❌ Closed / no staff
+            // ❌ Business closed / no staff working
             else if !hasAnyAvailability {
                 ContentUnavailableView(
                     "No availability",
@@ -61,29 +68,40 @@ struct TimeSlotSelectorView: View {
                 }
             }
 
-            // Confirm CTA
+            // ✅ Confirm CTA
             if let selectedSlot,
-               let staff = slotToStaff[selectedSlot]?.first {
+               let staff = slotToStaff[selectedSlot]?.first,
+               let serviceId = service.id,
+               let staffId = staff.id {
 
-                NavigationLink {
-                    BookingSummaryView(
-                        businessId: businessId,
-                        service: service,
-                        staff: staff,
-                        date: date,
-                        time: selectedSlot
+                Button {
+                    nav.path.append(
+                        AppRoute.bookingSummary(
+                            businessId: businessId,
+                            serviceId: serviceId,
+                            staffId: staffId,
+                            date: date,
+                            time: selectedSlot
+                        )
                     )
                 } label: {
-                    Text("Confirm \(selectedSlot.formatted(date: .omitted, time: .shortened))")
+                    Text(
+                        "Confirm \(selectedSlot.formatted(date: .omitted, time: .shortened))"
+                    )
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
             }
+
 
             Spacer()
         }
         .padding()
         .navigationTitle("Time")
-        .onAppear(perform: loadAvailability)
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            loadAvailability()
+        }
     }
 
     // MARK: - Load availability
@@ -115,12 +133,14 @@ struct TimeSlotSelectorView: View {
                         staffId: staffId
                     ) { availability in
 
-                        guard let day = availability[dayKey], !day.closed else {
+                        guard
+                            let day = availability[dayKey],
+                            !day.closed
+                        else {
                             group.leave()
                             return
                         }
 
-                        // 👇 At least one staff member is working
                         DispatchQueue.main.async {
                             hasAnyAvailability = true
                         }
@@ -150,12 +170,17 @@ struct TimeSlotSelectorView: View {
     // MARK: - Helpers
 
     private func weekdayKey(from date: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "EEEE"
-        return f.string(from: date).lowercased()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE"
+        return formatter.string(from: date).lowercased()
     }
 
-    private func generateSlots(open: String, close: String, duration: Int) -> [Date] {
+    private func generateSlots(
+        open: String,
+        close: String,
+        duration: Int
+    ) -> [Date] {
+
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
 
@@ -165,6 +190,7 @@ struct TimeSlotSelectorView: View {
         else { return [] }
 
         var slots: [Date] = []
+
         var current = Calendar.current.date(
             bySettingHour: Calendar.current.component(.hour, from: openTime),
             minute: Calendar.current.component(.minute, from: openTime),

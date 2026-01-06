@@ -89,14 +89,6 @@ struct BusinessServiceListView: View {
                 }
             }
         }
-        .sheet(isPresented: $showAddService) {
-            NavigationStack {
-                ServiceFormView(
-                    businessId: businessId,
-                    existingService: nil
-                )
-            }
-        }
         .onAppear {
             startListening()
         }

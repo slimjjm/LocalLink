@@ -23,45 +23,36 @@ struct AddStaffView: View {
     private let db = Firestore.firestore()
     private let staffLimitService = StaffLimitService()
 
-    // MARK: - Body
     var body: some View {
-        NavigationStack {
-            Form {
+        Form {
 
-                if let errorMessage {
-                    Text(errorMessage)
-                        .foregroundColor(.red)
-                }
-
-                Section("Staff Details") {
-                    TextField("Name", text: $name)
-
-                    TextField(
-                        "Skills (comma separated)",
-                        text: $skillsText
-                    )
-                    .autocapitalization(.sentences)
-                }
-
-                Section {
-                    Button {
-                        attemptAddStaff()
-                    } label: {
-                        Text(isSaving ? "Saving…" : "Save Staff")
-                    }
-                    .disabled(isSaving || name.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
+            if let errorMessage {
+                Text(errorMessage)
+                    .foregroundColor(.red)
             }
-            .navigationTitle("Add Staff")
-            .navigationBarTitleDisplayMode(.inline)
-            .alert(
-                "Staff limit reached",
-                isPresented: $showUpgradePrompt
-            ) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text("You’ve reached your current staff limit. Unlock an additional staff slot to add more team members.")
+
+            Section("Staff Details") {
+                TextField("Name", text: $name)
+
+                TextField("Skills (comma separated)", text: $skillsText)
+                    .textInputAutocapitalization(.sentences)
             }
+
+            Section {
+                Button {
+                    attemptAddStaff()
+                } label: {
+                    Text(isSaving ? "Saving…" : "Save Staff")
+                }
+                .disabled(isSaving || name.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .navigationTitle("Add Staff")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("Staff limit reached", isPresented: $showUpgradePrompt) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("You’ve reached your current staff limit. Unlock an additional staff slot to add more team members.")
         }
     }
 
@@ -82,7 +73,6 @@ struct AddStaffView: View {
             }
         }
     }
-
 
     // MARK: - Save
 
@@ -115,4 +105,3 @@ struct AddStaffView: View {
         isSaving = false
     }
 }
-

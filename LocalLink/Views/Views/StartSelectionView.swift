@@ -3,7 +3,7 @@ import SwiftUI
 struct StartSelectionView: View {
 
     @EnvironmentObject private var authManager: AuthManager
-    @State private var fadeIn = false
+    @EnvironmentObject private var nav: NavigationState
 
     var body: some View {
         VStack(spacing: 40) {
@@ -12,9 +12,9 @@ struct StartSelectionView: View {
 
             VStack(spacing: 22) {
 
-                // BUSINESS
                 Button {
-                    authManager.beginBusinessOnboarding()
+                    authManager.setRole(.business)
+                    nav.setRoot(.businessOnboarding)
                 } label: {
                     selectionCard(
                         icon: "briefcase.fill",
@@ -23,9 +23,9 @@ struct StartSelectionView: View {
                     )
                 }
 
-                // CUSTOMER
                 Button {
                     authManager.setRole(.customer)
+                    nav.setRoot(.customerHome)
                 } label: {
                     selectionCard(
                         icon: "person.3.fill",
@@ -38,11 +38,22 @@ struct StartSelectionView: View {
             Spacer()
         }
         .padding()
-        .opacity(fadeIn ? 1 : 0)
         .onAppear {
-            withAnimation(.easeIn(duration: 0.3)) {
-                fadeIn = true
-            }
+            autoRouteIfRoleExists()
+        }
+    }
+
+    // MARK: - Auto-routing (Step 3)
+
+    private func autoRouteIfRoleExists() {
+        guard let role = authManager.role else { return }
+
+        switch role {
+        case .business:
+            nav.setRoot(.businessHome)
+
+        case .customer:
+            nav.setRoot(.customerHome)
         }
     }
 
@@ -71,7 +82,6 @@ struct StartSelectionView: View {
         subtitle: String
     ) -> some View {
         HStack(spacing: 20) {
-
             Image(systemName: icon)
                 .font(.system(size: 32))
                 .frame(width: 60, height: 60)
@@ -95,3 +105,4 @@ struct StartSelectionView: View {
         .cornerRadius(18)
     }
 }
+

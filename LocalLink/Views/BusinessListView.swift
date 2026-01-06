@@ -1,43 +1,29 @@
 import SwiftUI
-import FirebaseFirestore
-import FirebaseFirestoreSwift
 
 struct BusinessListView: View {
 
-    // MARK: - State
-    @State private var businesses: [FirestoreBusiness] = []
-    @State private var isLoading = true
-    @State private var errorMessage: String?
-
-    // MARK: - Firestore
-    private let db = Firestore.firestore()
+    @StateObject private var viewModel = CustomerBusinessListViewModel()
 
     var body: some View {
         List {
 
-            // Header section (polish)
             Section {
                 Text("Local businesses")
                     .font(.headline)
             }
 
-            // Loading
-            if isLoading {
+            if viewModel.isLoading {
                 Section {
                     ProgressView("Loading businesses…")
                 }
             }
-
-            // Error
-            else if let errorMessage {
+            else if let error = viewModel.errorMessage {
                 Section {
-                    Text(errorMessage)
+                    Text(error)
                         .foregroundColor(.red)
                 }
             }
-
-            // Empty
-            else if businesses.isEmpty {
+            else if viewModel.businesses.isEmpty {
                 Section {
                     ContentUnavailableView(
                         "No businesses yet",
@@ -46,22 +32,22 @@ struct BusinessListView: View {
                     )
                 }
             }
-
-            // Results
             else {
                 Section {
-                    ForEach(businesses) { business in
-                        if let businessId = business.id {
+                    ForEach(viewModel.businesses) { business in
+                        if let id = business.id {
                             NavigationLink {
-                                CustomerServiceListView(businessId: businessId)
+                                CustomerServiceListView(businessId: id)
                             } label: {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(business.businessName)
                                         .font(.headline)
 
-                                    Text(business.address)
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
+                                    if let address = business.address {
+                                        Text(address)
+                                            .font(.subheadline)
+                                            .foregroundColor(.secondary)
+                                    }
                                 }
                                 .padding(.vertical, 4)
                             }
@@ -72,31 +58,8 @@ struct BusinessListView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Select a business")
-        .onAppear(perform: loadBusinesses)
-    }
-
-    // MARK: - Load businesses
-
-    private func loadBusinesses() {
-        isLoading = true
-        errorMessage = nil
-
-        db.collection("businesses")
-            .whereField("isActive", isEqualTo: true)
-            .getDocuments { snapshot, error in
-
-                isLoading = false
-
-                if let error {
-                    errorMessage = error.localizedDescription
-                    return
-                }
-
-                businesses = snapshot?.documents.compactMap {
-                    try? $0.data(as: FirestoreBusiness.self)
-                } ?? []
-            }
+        .onAppear {
+            viewModel.loadBusinesses()
+        }
     }
 }
-
-
