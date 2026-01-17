@@ -1,12 +1,11 @@
 import SwiftUI
-import FirebaseFirestore
 import FirebaseFirestoreSwift
 
 struct AddStaffView: View {
 
     // MARK: - Inputs
     let businessId: String
-    let onStaffAdded: () -> Void
+    let onStaffAdded: () -> Void = {}
 
     // MARK: - Environment
     @Environment(\.dismiss) private var dismiss
@@ -16,13 +15,13 @@ struct AddStaffView: View {
     @State private var skillsText = ""
     @State private var isSaving = false
     @State private var errorMessage: String?
-
     @State private var showUpgradePrompt = false
 
     // MARK: - Services
-    private let db = Firestore.firestore()
+    private let staffRepo = StaffRepository()
     private let staffLimitService = StaffLimitService()
 
+    // MARK: - View
     var body: some View {
         Form {
 
@@ -56,8 +55,7 @@ struct AddStaffView: View {
         }
     }
 
-    // MARK: - Flow Control
-
+    // MARK: - Flow
     private func attemptAddStaff() {
         isSaving = true
         errorMessage = nil
@@ -75,33 +73,41 @@ struct AddStaffView: View {
     }
 
     // MARK: - Save
-
     private func saveStaff() {
-        let skills = skillsText
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        let cleanedName =
+            name.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let skills =
+            skillsText
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
 
         let staff = Staff(
-            name: name.trimmingCharacters(in: .whitespaces),
+            id: nil,
+            name: cleanedName,
             isActive: true,
-            skills: skills.isEmpty ? nil : skills
+            skills: skills
         )
 
-        do {
-            _ = try db
-                .collection("businesses")
-                .document(businessId)
-                .collection("staff")
-                .addDocument(from: staff)
 
-            onStaffAdded()
-            dismiss()
+        staffRepo.createStaff(
+            businessId: businessId,
+            staff: staff
+        ) { result in
+            DispatchQueue.main.async {
+                isSaving = false
 
-        } catch {
-            errorMessage = "Failed to save staff member. Please try again."
+                switch result {
+                case .success:
+                    onStaffAdded()
+                    dismiss()
+
+                case .failure(let error):
+                    errorMessage = error.localizedDescription
+                }
+            }
         }
-
-        isSaving = false
     }
 }
+

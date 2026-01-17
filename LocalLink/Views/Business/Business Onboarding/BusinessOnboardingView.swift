@@ -5,7 +5,7 @@ import FirebaseFirestore
 struct BusinessOnboardingView: View {
 
     @EnvironmentObject private var authManager: AuthManager
-    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var nav: NavigationState
 
     @State private var businessName = ""
     @State private var isSaving = false
@@ -25,6 +25,7 @@ struct BusinessOnboardingView: View {
             if let errorMessage {
                 Text(errorMessage)
                     .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
             }
 
             Button {
@@ -34,24 +35,39 @@ struct BusinessOnboardingView: View {
                     ProgressView()
                 } else {
                     Text("Create business")
+                        .frame(maxWidth: .infinity)
                 }
             }
             .buttonStyle(.borderedProminent)
             .disabled(
-                businessName.trimmingCharacters(in: .whitespaces).isEmpty ||
-                isSaving
+                isSaving ||
+                businessName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             )
 
             Spacer()
         }
         .padding()
+        .navigationTitle("Business setup")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
-    // MARK: - Create Business
+    // MARK: - Create Business (Verified Users Only)
+
     private func createBusiness() {
 
-        guard let uid = Auth.auth().currentUser?.uid else {
-            errorMessage = "Signing you in… please try again in a moment."
+        guard let user = Auth.auth().currentUser else {
+            errorMessage = "Please sign in to continue."
+            return
+        }
+
+        if user.isAnonymous {
+            errorMessage = "Please create an account to create a business."
+            return
+        }
+
+        if !user.isEmailVerified {
+            user.sendEmailVerification()
+            errorMessage = "Please verify your email before creating a business."
             return
         }
 
@@ -59,12 +75,19 @@ struct BusinessOnboardingView: View {
         errorMessage = nil
 
         let data: [String: Any] = [
-            "businessName": businessName.trimmingCharacters(in: .whitespaces),
-            "ownerId": uid,
+            "businessName": businessName.trimmingCharacters(in: .whitespacesAndNewlines),
+            "ownerId": user.uid,
             "createdAt": FieldValue.serverTimestamp(),
+
+            // Discovery
+            "isActive": true,
+
+            // Trust / moderation
+            "verified": true,
+
+            // Monetisation
             "staffSlotsAllowed": 1,
-            "staffSlotsPurchased": 0,
-            "verified": false
+            "staffSlotsPurchased": 0
         ]
 
         db.collection("businesses").addDocument(data: data) { error in
@@ -75,11 +98,11 @@ struct BusinessOnboardingView: View {
                     errorMessage = error.localizedDescription
                 } else {
                     authManager.setRole(.business)
-                    dismiss()
+                    nav.reset()
+                    nav.path.append(.businessHome)
                 }
             }
         }
     }
 }
-
 

@@ -2,11 +2,10 @@ import Foundation
 import FirebaseFirestoreSwift
 
 struct Staff: Identifiable, Codable {
-    @DocumentID var id: String?
+
+    @DocumentID var id: String?   // ✅ REQUIRED
+
     let name: String
-    let isActive: Bool
-    let skills: [String]?
+    var isActive: Bool            // ✅ must be var (you toggle it)
+    let skills: [String]
 }
-
-
-

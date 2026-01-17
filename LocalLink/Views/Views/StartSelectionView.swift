@@ -1,20 +1,26 @@
 import SwiftUI
+import FirebaseAuth
 
 struct StartSelectionView: View {
 
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var nav: NavigationState
 
+    @State private var resendMessage: String?
+
     var body: some View {
-        VStack(spacing: 40) {
+        VStack(spacing: 28) {
+
+            emailVerificationBanner
 
             header
 
-            VStack(spacing: 22) {
+            VStack(spacing: 16) {
 
                 Button {
                     authManager.setRole(.business)
-                    nav.setRoot(.businessOnboarding)
+                    nav.reset()
+                    nav.path.append(.businessGate)
                 } label: {
                     selectionCard(
                         icon: "briefcase.fill",
@@ -25,7 +31,8 @@ struct StartSelectionView: View {
 
                 Button {
                     authManager.setRole(.customer)
-                    nav.setRoot(.customerHome)
+                    nav.reset()
+                    nav.path.append(.customerHome)
                 } label: {
                     selectionCard(
                         icon: "person.3.fill",
@@ -33,31 +40,57 @@ struct StartSelectionView: View {
                         subtitle: "Find local services and book instantly"
                     )
                 }
+
+                // ✅ Always available
+                Button {
+                    nav.path.append(.login)
+                } label: {
+                    Text("Log in / Create account")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .padding(.top, 6)
             }
 
             Spacer()
         }
         .padding()
-        .onAppear {
-            autoRouteIfRoleExists()
-        }
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
-    // MARK: - Auto-routing (Step 3)
+    @ViewBuilder
+    private var emailVerificationBanner: some View {
+        if let user = Auth.auth().currentUser,
+           !user.isAnonymous,
+           !user.isEmailVerified {
 
-    private func autoRouteIfRoleExists() {
-        guard let role = authManager.role else { return }
+            VStack(spacing: 8) {
+                Text("Please verify your email")
+                    .font(.headline)
 
-        switch role {
-        case .business:
-            nav.setRoot(.businessHome)
+                Text("Some features may be limited until you verify.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
 
-        case .customer:
-            nav.setRoot(.customerHome)
+                Button("Resend verification email") {
+                    user.sendEmailVerification()
+                    resendMessage = "Verification email sent"
+                }
+                .font(.caption)
+
+                if let resendMessage {
+                    Text(resendMessage)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding()
+            .background(Color.orange.opacity(0.15))
+            .cornerRadius(12)
         }
     }
-
-    // MARK: - Header
 
     private var header: some View {
         VStack(spacing: 8) {
@@ -74,13 +107,7 @@ struct StartSelectionView: View {
         }
     }
 
-    // MARK: - Selection Card
-
-    private func selectionCard(
-        icon: String,
-        title: String,
-        subtitle: String
-    ) -> some View {
+    private func selectionCard(icon: String, title: String, subtitle: String) -> some View {
         HStack(spacing: 20) {
             Image(systemName: icon)
                 .font(.system(size: 32))
@@ -90,9 +117,7 @@ struct StartSelectionView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 14))
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.headline)
-
+                Text(title).font(.headline)
                 Text(subtitle)
                     .font(.subheadline)
                     .foregroundColor(.secondary)
@@ -105,4 +130,3 @@ struct StartSelectionView: View {
         .cornerRadius(18)
     }
 }
-

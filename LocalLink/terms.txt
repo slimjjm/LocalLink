@@ -1,0 +1,87 @@
+Terms & Conditions
+Last updated: January 2026
+These Terms & Conditions (“Terms”) govern your use of the LocalLink mobile application and website (together, the “Service”).
+LocalLink is operated by James Evans trading as LocalLink, a sole trader based in Staffordshire, England.
+By accessing or using LocalLink, you agree to be bound by these Terms. If you do not agree, you must not use the Service.
+1. About LocalLink
+LocalLink is a platform that connects customers with local service providers.
+LocalLink facilitates discovery, communication, and booking but does not itself provide services.
+Any contract for services is strictly between the customer and the business.
+2. Eligibility
+You must be at least 16 years old to use LocalLink.
+By using the Service, you confirm that you meet this requirement.
+3. Accounts
+You must provide accurate and complete information when creating an account.
+You are responsible for:
+Maintaining the confidentiality of your login details
+All activity carried out under your account
+LocalLink may suspend or terminate accounts that breach these Terms or misuse the platform.
+4. Businesses and Customers
+Customers
+Customers may:
+Browse businesses
+Make bookings
+Communicate with businesses
+Businesses
+Businesses may:
+Create a business profile
+List services and availability
+Communicate with customers
+Businesses are responsible for:
+The accuracy of their listings
+Delivering services as described
+Complying with all applicable laws and regulations
+5. Bookings
+LocalLink enables customers to request and manage bookings with businesses.
+LocalLink:
+Does not guarantee availability
+Is not responsible for cancellations, service quality, or disputes
+Any issues relating to a booking must be resolved directly between the customer and the business.
+6. Messaging
+LocalLink provides messaging functionality to allow communication between customers and businesses.
+Messages:
+Must not contain unlawful, abusive, or inappropriate content
+May be monitored or removed where required to enforce these Terms or comply with legal obligations
+7. Payments
+At present, LocalLink does not process payments within the app.
+Any payments between customers and businesses are handled outside the platform.
+Payment features (including Apple Pay or Stripe) may be introduced in future versions and will be subject to additional terms if implemented.
+8. Fees
+Use of LocalLink is currently free for customers.
+Businesses may be charged fees or offered paid features in future versions.
+Any such changes will be clearly communicated in advance.
+9. Acceptable Use
+You agree not to:
+Use LocalLink for unlawful purposes
+Misrepresent yourself or your business
+Attempt to interfere with or disrupt the Service
+Upload malicious code or content
+10. Intellectual Property
+All content, branding, and software associated with LocalLink are owned by or licensed to LocalLink.
+You may not copy, modify, or distribute any part of the Service without prior written permission.
+11. Suspension and Termination
+LocalLink may suspend or terminate access to the Service where:
+These Terms are breached
+The Service is misused
+Required by law
+You may stop using the Service at any time.
+12. Disclaimer
+LocalLink is provided on an “as is” and “as available” basis.
+We do not guarantee:
+Continuous availability
+That the Service will be error-free
+The quality or suitability of services provided by businesses
+13. Limitation of Liability
+To the fullest extent permitted by law, LocalLink shall not be liable for:
+Losses arising from use of the Service
+Disputes between customers and businesses
+Indirect or consequential damages
+Nothing in these Terms limits liability where it would be unlawful to do so.
+14. Changes to These Terms
+We may update these Terms from time to time.
+Continued use of the Service constitutes acceptance of the updated Terms.
+15. Governing Law
+These Terms are governed by the laws of England and Wales.
+16. Contact
+If you have questions about these Terms, contact us at:
+Email: support@locallinkapp.co.uk

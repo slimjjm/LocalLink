@@ -2,22 +2,35 @@ import Foundation
 
 extension Date {
 
-    var weekdayName: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE"
-        return formatter.string(from: self)
+    // MARK: - Time math
+
+    func addingMinutes(_ minutes: Int) -> Date {
+        Calendar.current.date(byAdding: .minute, value: minutes, to: self) ?? self
     }
 
-    func atTime(_ time: String) -> Date? {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        formatter.locale = Locale(identifier: "en_GB")
+    // MARK: - Firestore helpers
 
-        guard let parsedTime = formatter.date(from: time) else { return nil }
+    /// yyyy-MM-dd
+    func dateId() -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_GB")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: self)
+    }
 
-        let calendar = Calendar.current
-        let day = calendar.dateComponents([.year, .month, .day], from: self)
-        let time = calendar.dateComponents([.hour, .minute], from: parsedTime)
+    // MARK: - Time parsing
+
+    func atTime(_ hhmm: String) -> Date? {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_GB")
+        f.dateFormat = "HH:mm"
+
+        guard let parsed = f.date(from: hhmm) else { return nil }
+
+        let cal = Calendar.current
+        let day = cal.dateComponents([.year, .month, .day], from: self)
+        let time = cal.dateComponents([.hour, .minute], from: parsed)
 
         var final = DateComponents()
         final.year = day.year
@@ -26,23 +39,8 @@ extension Date {
         final.hour = time.hour
         final.minute = time.minute
 
-        return calendar.date(from: final)
-    }
-
-    func addingMinutes(_ minutes: Int) -> Date {
-        Calendar.current.date(byAdding: .minute, value: minutes, to: self) ?? self
+        return cal.date(from: final)
     }
 }
-extension Date {
 
-    /// Lowercased weekday key used for staff availability maps
-    /// e.g. "monday", "tuesday"
-    var weekdayKey: String {
-        weekdayName.lowercased()
-    }
 
-    /// Alias used by booking validator
-    func settingTime(from timeString: String) -> Date {
-        atTime(timeString) ?? self
-    }
-}

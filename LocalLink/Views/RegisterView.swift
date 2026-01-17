@@ -1,67 +1,84 @@
 import SwiftUI
-import FirebaseAuth
 
 struct RegisterView: View {
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var authManager: AuthManager
 
     @State private var email = ""
     @State private var password = ""
-    @State private var isLoading = false
-    @State private var errorMessage: String?
+    @State private var confirm = ""
+    @State private var localError: String?
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 18) {
+
+            Spacer()
 
             Text("Create account")
                 .font(.largeTitle.bold())
 
-            TextField("Email", text: $email)
-                .keyboardType(.emailAddress)
-                .autocapitalization(.none)
-                .textFieldStyle(.roundedBorder)
+            VStack(spacing: 14) {
+                TextField("Email", text: $email)
+                    .keyboardType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .padding()
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(12)
 
-            SecureField("Password", text: $password)
-                .textFieldStyle(.roundedBorder)
+                SecureField("Password", text: $password)
+                    .padding()
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(12)
 
-            if let errorMessage {
-                Text(errorMessage)
+                SecureField("Confirm password", text: $confirm)
+                    .padding()
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(12)
+            }
+
+            if let localError {
+                Text(localError)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+            } else if let authErr = authManager.errorMessage {
+                Text(authErr)
                     .foregroundColor(.red)
                     .multilineTextAlignment(.center)
             }
 
             Button {
-                register()
+                signUpTapped()
             } label: {
-                if isLoading {
+                if authManager.isLoading {
                     ProgressView()
                 } else {
                     Text("Create account")
+                        .frame(maxWidth: .infinity)
                 }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(email.isEmpty || password.isEmpty || isLoading)
+            .disabled(authManager.isLoading)
 
             Spacer()
         }
         .padding()
+        .navigationTitle("Register")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
-    // MARK: - Register
+    private func signUpTapped() {
+        localError = nil
 
-    private func register() {
-        errorMessage = nil
-        isLoading = true
+        let e = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !e.isEmpty else { localError = "Please enter your email."; return }
+        guard password.count >= 6 else { localError = "Password must be at least 6 characters."; return }
+        guard password == confirm else { localError = "Passwords do not match."; return }
 
-        Auth.auth().createUser(withEmail: email, password: password) { _, error in
-            DispatchQueue.main.async {
-                isLoading = false
-
-                if let error {
-                    errorMessage = error.localizedDescription
-                } else {
-                    dismiss()
-                }
+        authManager.signUp(email: e, password: password) { success in
+            if success {
+                dismiss()
             }
         }
     }

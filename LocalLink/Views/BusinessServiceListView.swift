@@ -17,6 +17,7 @@ struct BusinessServiceListView: View {
 
     var body: some View {
         Group {
+
             // Loading
             if isLoading {
                 ProgressView("Loading services…")
@@ -41,7 +42,9 @@ struct BusinessServiceListView: View {
                     ContentUnavailableView(
                         "No services yet",
                         systemImage: "scissors",
-                        description: Text("Add your first service to start taking bookings.")
+                        description: Text(
+                            "Add your first service to start taking bookings."
+                        )
                     )
 
                     Button("Add Service") {
@@ -80,6 +83,8 @@ struct BusinessServiceListView: View {
             }
         }
         .navigationTitle("Services")
+
+        // ✅ PLUS BUTTON NOW WORKS
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
@@ -89,6 +94,15 @@ struct BusinessServiceListView: View {
                 }
             }
         }
+
+        // ✅ THIS WAS MISSING
+        .navigationDestination(isPresented: $showAddService) {
+            ServiceFormView(
+                businessId: businessId,
+                existingService: nil
+            )
+        }
+
         .onAppear {
             startListening()
         }
@@ -105,7 +119,8 @@ struct BusinessServiceListView: View {
 
         listener?.remove()
 
-        listener = db.collection("businesses")
+        listener = db
+            .collection("businesses")
             .document(businessId)
             .collection("services")
             .order(by: "name")
@@ -125,3 +140,4 @@ struct BusinessServiceListView: View {
             }
     }
 }
+

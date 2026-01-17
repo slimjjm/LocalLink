@@ -44,9 +44,11 @@
 			membershipExceptions = (
 				Models/BookingSlot.swift,
 				Models/StaffMember.swift,
-				ViewModels/SlotGenerator.swift,
+				Services/WeeklyAvailbilityRepository.swift,
+				Utilities/BookingAvailabilityValidator.swift,
 				Views/AddServiceView.swift,
 				Views/Customer/BookingDetailView.swift,
+				Views/Untitled.swift,
 			);
 			target = 1886572B2EDDECEA00C1F0F9 /* LocalLink */;
 		};
@@ -435,7 +437,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_ASSET_PATHS = "\"LocalLink/Preview Content\"";
 				DEVELOPMENT_TEAM = 3XJ7737Y29;
 				ENABLE_PREVIEWS = YES;
@@ -468,7 +470,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_ASSET_PATHS = "\"LocalLink/Preview Content\"";
 				DEVELOPMENT_TEAM = 3XJ7737Y29;
 				ENABLE_PREVIEWS = YES;

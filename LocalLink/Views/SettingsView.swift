@@ -1,54 +1,48 @@
 import SwiftUI
-import FirebaseAuth
 
 struct SettingsView: View {
 
+    @EnvironmentObject private var nav: NavigationState
+    @EnvironmentObject private var authManager: AuthManager
+
     var body: some View {
         List {
-            accountSection
             supportSection
             signOutSection
         }
         .navigationTitle("Settings")
     }
 
-    // MARK: - Account (USER level, not business)
-    private var accountSection: some View {
-        Section("Account") {
-            NavigationLink {
-                ProfileView()
-            } label: {
-                Label("Your account", systemImage: "person")
-            }
-        }
-    }
+    // MARK: - Support
 
-    // MARK: - Support & Legal
     private var supportSection: some View {
         Section("Support") {
-
-            Link(destination: URL(string: "https://locallinkapp.co.uk/privacy")!) {
-                Label("Privacy Policy", systemImage: "lock.shield")
-            }
-
-            Link(destination: URL(string: "https://locallinkapp.co.uk/terms")!) {
-                Label("Terms & Conditions", systemImage: "doc.text")
-            }
-
-            Link(destination: URL(string: "https://locallinkapp.co.uk/contact")!) {
-                Label("Contact us", systemImage: "envelope")
-            }
+            Link(
+                "Privacy Policy",
+                destination: URL(string: "https://locallinkapp.co.uk/privacy")!
+            )
+            Link(
+                "Terms & Conditions",
+                destination: URL(string: "https://locallinkapp.co.uk/terms")!
+            )
+            Link(
+                "Contact us",
+                destination: URL(string: "https://locallinkapp.co.uk/contact")!
+            )
         }
     }
 
-    // MARK: - Sign out
+    // MARK: - Sign Out
+
     private var signOutSection: some View {
         Section {
             Button(role: .destructive) {
-                try? Auth.auth().signOut()
+                authManager.logout()
+                nav.reset()
             } label: {
                 Label("Sign out", systemImage: "arrow.backward.circle")
             }
         }
     }
 }
+

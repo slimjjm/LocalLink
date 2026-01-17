@@ -10,23 +10,25 @@ struct BusinessHomeView: View {
         Group {
             if resolver.isLoading {
                 ProgressView("Loading business…")
-            }
-            else if !resolver.errorMessage.isEmpty {
+
+            } else if !resolver.errorMessage.isEmpty {
                 errorState
-            }
-            else if let businessId = resolver.selectedBusinessId {
+
+            } else if let businessId = resolver.selectedBusinessId {
                 content(businessId: businessId)
-            }
-            else {
+
+            } else {
                 ProgressView("Loading business…")
             }
         }
         .navigationTitle("Business")
         .onAppear {
-            // Safe: reloading on appear keeps it correct after sign-in / switching accounts
+            // Safe reload keeps state correct after auth / switching accounts
             resolver.load()
         }
     }
+
+    // MARK: - Error State
 
     private var errorState: some View {
         VStack(spacing: 14) {
@@ -52,14 +54,12 @@ struct BusinessHomeView: View {
     }
 
     // MARK: - Main Content
+
     private func content(businessId: String) -> some View {
         ScrollView {
             VStack(spacing: 28) {
                 headerSection
-
-                // Optional: shows which business is selected (useful once you add multi-business UI later)
                 selectedBusinessHint
-
                 staffUsageTile(businessId: businessId)
                 menuGrid(businessId: businessId)
             }
@@ -67,6 +67,22 @@ struct BusinessHomeView: View {
         }
         .background(Color(.systemGroupedBackground))
     }
+
+    // MARK: - Header
+
+    private var headerSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Welcome back")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+
+            Text("Business Dashboard")
+                .font(.largeTitle.bold())
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Selected Business Hint (future multi-business support)
 
     private var selectedBusinessHint: some View {
         Group {
@@ -103,20 +119,8 @@ struct BusinessHomeView: View {
         }
     }
 
-    // MARK: - Header
-    private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Welcome back")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+    // MARK: - Staff Tile (top priority action)
 
-            Text("Business Dashboard")
-                .font(.largeTitle.bold())
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - Staff Usage Tile
     private func staffUsageTile(businessId: String) -> some View {
         NavigationLink {
             BusinessStaffListView(businessId: businessId)
@@ -154,7 +158,8 @@ struct BusinessHomeView: View {
         }
     }
 
-    // MARK: - Menu Grid
+    // MARK: - Menu Grid (core business actions)
+
     private func menuGrid(businessId: String) -> some View {
         LazyVGrid(
             columns: [
@@ -164,25 +169,28 @@ struct BusinessHomeView: View {
             spacing: 20
         ) {
 
+            // ✅ SERVICES (critical for bookings)
+            NavigationLink {
+                BusinessServiceListView(businessId: businessId)
+            } label: {
+                menuTile(title: "Services", icon: "scissors")
+            }
+
+            // BOOKINGS
             NavigationLink {
                 BusinessBookingsView(businessId: businessId)
             } label: {
                 menuTile(title: "Bookings", icon: "calendar")
             }
 
-            NavigationLink {
-                OpeningHoursView(businessId: businessId)
-            } label: {
-                menuTile(title: "Opening Hours", icon: "clock")
-            }
-
-            // ✅ Changed: go to READ profile first (then edit from there)
+            // PROFILE
             NavigationLink {
                 BusinessProfileView(businessId: businessId)
             } label: {
                 menuTile(title: "Profile", icon: "building.2")
             }
 
+            // SETTINGS
             NavigationLink {
                 SettingsView()
             } label: {
@@ -192,6 +200,7 @@ struct BusinessHomeView: View {
     }
 
     // MARK: - Tile UI
+
     private func menuTile(title: String, icon: String) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 8) {
@@ -224,4 +233,3 @@ struct BusinessHomeView: View {
         )
     }
 }
-

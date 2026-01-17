@@ -1,7 +1,13 @@
-//
-//  StaffEdit.swift
-//  LocalLink
-//
-//  Created by The Mac Daddy on 08/01/2026.
-//
+// Models/StaffEditableDay.swift
+import Foundation
 
+struct StaffEditableDay: Identifiable {
+
+    let key: DayKey
+
+    var closed: Bool
+    var openTime: Date
+    var closeTime: Date
+
+    var id: String { key.rawValue }
+}

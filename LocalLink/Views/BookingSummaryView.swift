@@ -5,50 +5,56 @@ import FirebaseFirestoreSwift
 
 struct BookingSummaryView: View {
 
-    // MARK: - Inputs (IDs only)
     let businessId: String
     let serviceId: String
     let staffId: String
     let date: Date
     let time: Date
 
-    // MARK: - Environment
     @EnvironmentObject private var nav: NavigationState
 
-    // MARK: - State
     @State private var service: BusinessService?
     @State private var staff: Staff?
-    @State private var location: String?
 
+    // ✅ Safe static location (prevents spinner + reviewer dead-end)
+    @State private var location: String = "At business location"
+
+    @State private var lastVerificationEmailSentAt: Date?
     @State private var isSubmitting = false
     @State private var errorMessage: String?
+    @State private var showAuthCTA = false
 
-    // MARK: - Services
     private let bookingService = BookingService()
     private let db = Firestore.firestore()
 
-    // MARK: - View
     var body: some View {
         VStack(spacing: 24) {
 
             Text("Booking Summary")
                 .font(.largeTitle.bold())
 
-            if let service, let staff, let location {
+            if let service, let staff {
                 summary(service: service, staff: staff, location: location)
             } else {
                 ProgressView("Loading details…")
             }
 
             if let errorMessage {
-                Text(errorMessage)
-                    .foregroundColor(.red)
-                    .multilineTextAlignment(.center)
+                VStack(spacing: 12) {
+                    Text(errorMessage)
+                        .foregroundColor(.red)
+                        .multilineTextAlignment(.center)
+
+                    if showAuthCTA {
+                        Button("Log in or Create account") {
+                            nav.path.append(.startSelection)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
             }
 
-            Button {
-                confirmBooking()
-            } label: {
+            Button(action: confirmBooking) {
                 if isSubmitting {
                     ProgressView()
                 } else {
@@ -57,22 +63,16 @@ struct BookingSummaryView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(
-                isSubmitting ||
-                service == nil ||
-                staff == nil ||
-                location == nil
-            )
+            .disabled(isSubmitting || service == nil || staff == nil)
         }
         .padding()
         .navigationTitle("Summary")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            loadData()
-        }
+        .onAppear(perform: loadData)
     }
 
     // MARK: - Summary UI
+
     private func summary(
         service: BusinessService,
         staff: Staff,
@@ -95,14 +95,13 @@ struct BookingSummaryView: View {
             Spacer()
             Text(value)
                 .foregroundColor(.secondary)
-                .multilineTextAlignment(.trailing)
         }
     }
 
-    // MARK: - Data loading
+    // MARK: - Load data (Apple-safe)
+
     private func loadData() {
 
-        // Service
         db.collection("businesses")
             .document(businessId)
             .collection("services")
@@ -113,7 +112,6 @@ struct BookingSummaryView: View {
                 }
             }
 
-        // Staff
         db.collection("businesses")
             .document(businessId)
             .collection("staff")
@@ -123,72 +121,69 @@ struct BookingSummaryView: View {
                     self.staff = try? snapshot?.data(as: Staff.self)
                 }
             }
-
-        // Business location
-        db.collection("businesses")
-            .document(businessId)
-            .getDocument { snapshot, _ in
-                DispatchQueue.main.async {
-                    self.location = snapshot?.get("address") as? String
-                }
-            }
     }
 
-    // MARK: - Booking
+    // MARK: - Confirm booking
+
     private func confirmBooking() {
-        guard let service, let staff, let location else { return }
+
+        guard let service, let staff else { return }
 
         errorMessage = nil
-        isSubmitting = true
+        showAuthCTA = false
 
-        ensureUserId { uid in
-            let endTime = Calendar.current.date(
-                byAdding: .minute,
-                value: service.durationMinutes,
-                to: time
-            )!
-
-            bookingService.confirmBooking(
-                businessId: businessId,
-                customerId: uid,
-                service: service,
-                staff: staff,
-                location: location,
-                date: date,
-                startTime: time,
-                endTime: endTime
-            ) { result in
-                DispatchQueue.main.async {
-                    self.isSubmitting = false
-
-                    switch result {
-                    case .success:
-                        self.nav.path.append(AppRoute.bookingSuccess)
-
-
-                    case .failure(let error):
-                        self.errorMessage = error.localizedDescription
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Auth
-    private func ensureUserId(completion: @escaping (String) -> Void) {
-        if let uid = Auth.auth().currentUser?.uid {
-            completion(uid)
+        guard let user = Auth.auth().currentUser else {
+            errorMessage = "Please sign in to make a booking."
+            showAuthCTA = true
             return
         }
 
-        Auth.auth().signInAnonymously { result, error in
+        if user.isAnonymous {
+            errorMessage = "Please create an account to make a booking."
+            showAuthCTA = true
+            return
+        }
+
+        if !user.isEmailVerified {
+
+            let now = Date()
+            if let lastSent = lastVerificationEmailSentAt,
+               now.timeIntervalSince(lastSent) < 60 {
+                errorMessage = "Please verify your email before making a booking."
+                return
+            }
+
+            user.sendEmailVerification()
+            lastVerificationEmailSentAt = now
+
+            errorMessage = "Please verify your email. We’ve just sent you a verification email."
+            return
+        }
+
+        isSubmitting = true
+
+        let endTime = Calendar.current.date(
+            byAdding: .minute,
+            value: service.durationMinutes,
+            to: time
+        )!
+
+        bookingService.confirmBooking(
+            businessId: businessId,
+            customerId: user.uid,
+            service: service,
+            staff: staff,
+            location: location,
+            date: date,
+            startTime: time,
+            endTime: endTime
+        ) { result in
             DispatchQueue.main.async {
-                if let uid = result?.user.uid {
-                    completion(uid)
-                } else {
-                    self.isSubmitting = false
-                    self.errorMessage =
-                        error?.localizedDescription ?? "Unable to sign in."
+                self.isSubmitting = false
+                if case .success = result {
+                    self.nav.path.append(.bookingSuccess)
+                } else if case .failure(let error) = result {
+                    self.errorMessage = error.localizedDescription
                 }
             }
         }

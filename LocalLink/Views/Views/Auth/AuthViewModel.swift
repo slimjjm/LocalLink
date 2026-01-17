@@ -1,45 +1,56 @@
 import Foundation
 import FirebaseAuth
-import SwiftUI
 
-class AuthViewModel: ObservableObject {
-    @Published var user: User? = Auth.auth().currentUser
+@MainActor
+final class AuthViewModel: ObservableObject {
+    
+    @Published var isLoading = false
     @Published var errorMessage: String?
-
-    init() {
-        self.user = Auth.auth().currentUser
-    }
-
-    // SIGN UP
-    func signUp(email: String, password: String, completion: @escaping (Bool) -> Void) {
-        Auth.auth().createUser(withEmail: email, password: password) { result, error in
-            if let error = error {
-                self.errorMessage = error.localizedDescription
-                completion(false)
-                return
-            }
-            self.user = result?.user
-            completion(true)
+    
+    // MARK: - Register
+    
+    func signUp(
+        email: String,
+        password: String,
+        completion: @escaping (Bool) -> Void
+    ) {
+        isLoading = true
+        errorMessage = nil
+        
+        guard let user = Auth.auth().currentUser else {
+            self.isLoading = false
+            self.errorMessage = "No active user session."
+            completion(false)
+            return
         }
-    }
+        
+        let credential = EmailAuthProvider.credential(
+            withEmail: email,
+            password: password
+        )
+        
+        user.link(with: credential) { result, error in
+            DispatchQueue.main.async {
+                self.isLoading = false
+                
+                if let error {
+                    self.errorMessage = error.localizedDescription
+                    completion(false)
+                    return
+                }
+                
+                result?.user.sendEmailVerification { error in
+                    if let error {
+                        print("❌ VERIFICATION ERROR:", error)
+                        self.errorMessage = error.localizedDescription
+                        completion(false)
+                    } else {
+                        print("✅ VERIFICATION EMAIL SENT")
+                        completion(true)
+                    }
+                }
 
-    // LOGIN
-    func login(email: String, password: String, completion: @escaping (Bool) -> Void) {
-        Auth.auth().signIn(withEmail: email, password: password) { result, error in
-            if let error = error {
-                self.errorMessage = error.localizedDescription
-                completion(false)
-                return
             }
-            self.user = result?.user
-            completion(true)
         }
-    }
-
-    // LOG OUT
-    func logout() {
-        try? Auth.auth().signOut()
-        self.user = nil
     }
 }
-

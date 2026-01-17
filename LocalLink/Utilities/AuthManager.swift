@@ -10,60 +10,161 @@ final class AuthManager: ObservableObject {
         case business
     }
 
+    // MARK: - Published State
+    @Published var isLoading = false
+    @Published var errorMessage: String?
     @Published private(set) var role: UserRole?
 
     @AppStorage("userRole") private var storedRole: String?
+    @AppStorage("allowAnonymousAuth") private var allowAnonymousAuth = true
 
-    private let db = Firestore.firestore()
-    private var authHandle: AuthStateDidChangeListenerHandle?
+    // Lazy Firestore (safe at launch)
+    private lazy var db = Firestore.firestore()
 
     // MARK: - Init
-
     init() {
-        // Restore role instantly on launch
         if let storedRole,
            let role = UserRole(rawValue: storedRole) {
             self.role = role
         }
 
-        // Listen for auth changes (future-proofing)
-        authHandle = Auth.auth().addStateDidChangeListener { _, _ in }
-    }
-
-    deinit {
-        if let authHandle {
-            Auth.auth().removeStateDidChangeListener(authHandle)
+        DispatchQueue.main.async {
+            self.startSessionIfNeeded()
         }
     }
 
-    // MARK: - Role Management (APP SESSION)
+    // MARK: - Session bootstrap
+    private func startSessionIfNeeded() {
+        if Auth.auth().currentUser == nil && allowAnonymousAuth {
+            signInAnonymously()
+        }
+    }
 
+    // MARK: - Anonymous
+    func signInAnonymously() {
+        Auth.auth().signInAnonymously { result, error in
+            if let error {
+                print("❌ Anonymous sign-in failed:", error.localizedDescription)
+            } else {
+                print("✅ Anonymous session:", result?.user.uid ?? "")
+            }
+        }
+    }
+
+    // MARK: - Flow control
+    func requireFullLogin() {
+        allowAnonymousAuth = false
+    }
+
+    func allowAnonymousAgain() {
+        allowAnonymousAuth = true
+        if Auth.auth().currentUser == nil {
+            signInAnonymously()
+        }
+    }
+
+    // MARK: - Login
+    func login(
+        email: String,
+        password: String,
+        completion: @escaping (Bool) -> Void
+    ) {
+        isLoading = true
+        errorMessage = nil
+
+        Auth.auth().signIn(withEmail: email, password: password) { _, error in
+            DispatchQueue.main.async {
+                self.isLoading = false
+
+                if let error {
+                    self.errorMessage = error.localizedDescription
+                    completion(false)
+                } else {
+                    self.allowAnonymousAuth = true
+                    completion(true)
+                }
+            }
+        }
+    }
+
+    // MARK: - Register
+    func signUp(
+        email: String,
+        password: String,
+        completion: @escaping (Bool) -> Void
+    ) {
+        isLoading = true
+        errorMessage = nil
+
+        if let user = Auth.auth().currentUser, user.isAnonymous {
+            let credential = EmailAuthProvider.credential(
+                withEmail: email,
+                password: password
+            )
+
+            user.link(with: credential) { result, error in
+                DispatchQueue.main.async {
+                    self.isLoading = false
+
+                    if let error {
+                        self.errorMessage = error.localizedDescription
+                        completion(false)
+                        return
+                    }
+
+                    result?.user.sendEmailVerification()
+                    self.allowAnonymousAuth = true
+                    completion(true)
+                }
+            }
+            return
+        }
+
+        Auth.auth().createUser(withEmail: email, password: password) { result, error in
+            DispatchQueue.main.async {
+                self.isLoading = false
+
+                if let error {
+                    self.errorMessage = error.localizedDescription
+                    completion(false)
+                    return
+                }
+
+                result?.user.sendEmailVerification()
+                self.allowAnonymousAuth = true
+                completion(true)
+            }
+        }
+    }
+
+    // MARK: - Role
     func setRole(_ role: UserRole) {
         self.role = role
-        self.storedRole = role.rawValue
-
-        // Fire-and-forget backend sync
+        storedRole = role.rawValue
         syncRoleToFirestore(role)
     }
 
     func clearRole() {
-        self.role = nil
-        self.storedRole = nil
+        role = nil
+        storedRole = nil
     }
 
-    // MARK: - Firebase Logout (explicit)
-
+    // MARK: - Logout (NO NAVIGATION HERE)
     func logout() {
         clearRole()
+
         do {
             try Auth.auth().signOut()
         } catch {
-            print("Logout failed:", error)
+            print("❌ Logout failed:", error.localizedDescription)
+        }
+
+        if allowAnonymousAuth {
+            signInAnonymously()
         }
     }
 
-    // MARK: - Firestore Sync (non-blocking)
-
+    // MARK: - Firestore sync
     private func syncRoleToFirestore(_ role: UserRole) {
         guard let uid = Auth.auth().currentUser?.uid else { return }
 

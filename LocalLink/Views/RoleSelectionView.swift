@@ -41,4 +41,3 @@ struct RoleSelectionView: View {
         .padding()
     }
 }
-

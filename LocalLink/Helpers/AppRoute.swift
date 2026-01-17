@@ -2,12 +2,20 @@ import Foundation
 
 enum AppRoute: Hashable {
 
-    // Root destinations
-    case customerHome
-    case businessHome
+    // Root
+    case startSelection
 
-    // Onboarding
+    // Auth
+    case login
+    case register
+
+    // Customer
+    case customerHome
+
+    // Business
+    case businessGate
     case businessOnboarding
+    case businessHome
 
     // Booking flow
     case bookingSummary(
@@ -19,5 +27,5 @@ enum AppRoute: Hashable {
     )
 
     case bookingSuccess
-    case bookingDetail(bookingId: String) 
+    case bookingDetail(bookingId: String)
 }

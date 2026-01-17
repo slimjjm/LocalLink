@@ -8,53 +8,47 @@ struct CustomerBookingsView: View {
     var body: some View {
         List {
 
+            // Loading
             if viewModel.isLoading {
-                ProgressView("Loading bookings…")
+                HStack {
+                    Spacer()
+                    ProgressView("Loading bookings…")
+                    Spacer()
+                }
             }
 
+            // Error
             if let error = viewModel.errorMessage {
                 Text(error)
                     .foregroundColor(.red)
             }
 
+            // Upcoming bookings
             if !viewModel.upcoming.isEmpty {
                 Section("Upcoming") {
                     ForEach(viewModel.upcoming) { booking in
-                        Button {
-                            if let id = booking.id {
-                                nav.path.append(
-                                    AppRoute.bookingDetail(bookingId: id)
-                                )
-                            }
-                        } label: {
-                            BookingRowView(booking: booking)
-                        }
+                        bookingRow(booking)
                     }
                 }
             }
 
+            // Past bookings
             if !viewModel.past.isEmpty {
                 Section("Past") {
                     ForEach(viewModel.past) { booking in
-                        Button {
-                            if let id = booking.id {
-                                nav.path.append(
-                                    AppRoute.bookingDetail(bookingId: id)
-                                )
-                            }
-                        } label: {
-                            BookingRowView(booking: booking)
-                        }
+                        bookingRow(booking)
                     }
                 }
             }
 
+            // Empty state
             if !viewModel.isLoading &&
-                viewModel.upcoming.isEmpty &&
-                viewModel.past.isEmpty {
+               viewModel.upcoming.isEmpty &&
+               viewModel.past.isEmpty {
 
                 Text("No bookings yet")
                     .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
         }
         .navigationTitle("My Bookings")
@@ -63,5 +57,17 @@ struct CustomerBookingsView: View {
             viewModel.loadBookings()
         }
     }
-}
 
+    // MARK: - Booking Row Navigation
+
+    @ViewBuilder
+    private func bookingRow(_ booking: Booking) -> some View {
+        Button {
+            guard let id = booking.id else { return }
+            nav.path.append(AppRoute.bookingDetail(bookingId: id))
+
+        } label: {
+            BookingRowView(booking: booking)
+        }
+    }
+}

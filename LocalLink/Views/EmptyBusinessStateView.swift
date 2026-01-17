@@ -9,7 +9,7 @@ struct EmptyBusinessStateView: View {
                 .font(.system(size: 56))
                 .foregroundColor(.secondary)
 
-            Text("No business yet")
+            Text("You don't have a business yet")
                 .font(.title.bold())
 
             Text("Create your business profile to start accepting bookings.")
