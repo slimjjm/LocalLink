@@ -3,45 +3,87 @@ import SwiftUI
 struct BusinessBookingRowView: View {
 
     let booking: Booking
-    let onCancelled: () -> Void
+    var onCancelled: () -> Void
 
+    @State private var isCancelling = false
     private let bookingService = BookingService()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        HStack(alignment: .top, spacing: 14) {
 
-            Text(booking.serviceName)
-                .font(.headline)
+            VStack {
+                Text(timeString)
+                    .font(.title3.bold())
+                Spacer()
+            }
+            .frame(width: 60)
 
-            Text("Staff: \(booking.staffName)")
+            VStack(alignment: .leading, spacing: 8) {
+
+                Text(booking.serviceName)
+                    .font(.headline)
+
+                HStack(spacing: 6) {
+                    Image(systemName: "person.fill")
+                        .foregroundColor(.secondary)
+                    Text(booking.customerName)
+                }
                 .font(.subheadline)
-                .foregroundColor(.secondary)
 
-            Text("Customer: \(booking.customerId)")
-                .font(.caption)
-                .foregroundColor(.secondary)
+                if !booking.customerAddress.isEmpty {
+                    HStack(spacing: 6) {
+                        Image(systemName: "mappin.and.ellipse")
+                            .foregroundColor(.secondary)
+                        Text(booking.customerAddress)
+                            .lineLimit(2)
+                    }
+                    .font(.subheadline)
+                }
 
-            Text(booking.startDate, style: .time)
-                .font(.caption)
-
-            if booking.status == .confirmed {
-                Button("Cancel", role: .destructive) {
-                    cancelBooking()
+                HStack(spacing: 6) {
+                    Image(systemName: "person.2.fill")
+                        .foregroundColor(.secondary)
+                    Text("Staff: \(booking.staffName)")
                 }
                 .font(.caption)
-                .padding(.top, 4)
+                .foregroundColor(.secondary)
+
+                Divider()
+
+                Button(role: .destructive) {
+                    cancelBooking()
+                } label: {
+                    if isCancelling {
+                        ProgressView()
+                    } else {
+                        Text("Cancel booking")
+                            .font(.caption)
+                    }
+                }
             }
         }
-        .padding(.vertical, 4)
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.secondarySystemBackground))
+        )
+        .padding(.vertical, 6)
+    }
+
+    private var timeString: String {
+        booking.startDate.formatted(date: .omitted, time: .shortened)
     }
 
     private func cancelBooking() {
-        guard let id = booking.id else { return }
+        guard let bookingId = booking.id else { return }
+
+        isCancelling = true
 
         bookingService.cancelBookingAsBusiness(
-            bookingId: id
+            bookingId: bookingId
         ) { result in
             DispatchQueue.main.async {
+                isCancelling = false
                 if case .success = result {
                     onCancelled()
                 }

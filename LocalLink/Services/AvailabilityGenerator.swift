@@ -6,13 +6,60 @@ final class AvailabilityGenerator {
     private let db = Firestore.firestore()
     private let calendar = Calendar.current
 
-    /// Generates availability docs for the next `numberOfDays` (append-only: won't overwrite existing docs).
+    // MARK: - Public: Regenerate everything clean
+    func regenerateNextDays(
+        businessId: String,
+        staffId: String,
+        numberOfDays: Int,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        let staffRef = db
+            .collection("businesses")
+            .document(businessId)
+            .collection("staff")
+            .document(staffId)
+
+        // 1) Delete ALL future availability
+        staffRef.collection("availability")
+            .getDocuments { [weak self] snapshot, error in
+                guard let self else { return }
+
+                if let error {
+                    completion(.failure(error))
+                    return
+                }
+
+                let batch = self.db.batch()
+
+                snapshot?.documents.forEach {
+                    batch.deleteDocument($0.reference)
+                }
+
+                batch.commit { err in
+                    if let err {
+                        completion(.failure(err))
+                        return
+                    }
+
+                    // 2) Rebuild fresh
+                    self.generateNextDays(
+                        businessId: businessId,
+                        staffId: staffId,
+                        numberOfDays: numberOfDays,
+                        completion: completion
+                    )
+                }
+            }
+    }
+
+    // MARK: - Generate from weekly template
     func generateNextDays(
         businessId: String,
         staffId: String,
         numberOfDays: Int,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
+
         let staffRef = db
             .collection("businesses")
             .document(businessId)
@@ -27,20 +74,10 @@ final class AvailabilityGenerator {
                 return
             }
 
-            guard let data = snapshot?.data() else {
+            guard let data = snapshot?.data(),
+                  let weekly = data["weeklyAvailability"] as? [String: Any]
+            else {
                 completion(.success(()))
-                return
-            }
-
-            // Support BOTH possible field names (your codebase currently uses both patterns)
-            // - weeklyAvailability (what this generator expects)
-            // - availability (what HorizonService parseWeeklyTemplate expects)
-            let weekly =
-                (data["weeklyAvailability"] as? [String: Any]) ??
-                (data["availability"] as? [String: Any])
-
-            guard let weekly else {
-                completion(.success(())) // nothing to generate
                 return
             }
 
@@ -51,36 +88,32 @@ final class AvailabilityGenerator {
                     for offset in 0..<numberOfDays {
                         guard let day = self.calendar.date(byAdding: .day, value: offset, to: today) else { continue }
 
-                        let weekday = day.weekdayKey // e.g. "monday"
+                        let weekday = day.weekdayKey
+
                         guard
-                            let dayConfig = weekly[weekday] as? [String: Any],
-                            let closed = dayConfig["closed"] as? Bool,
+                            let config = weekly[weekday] as? [String: Any],
+                            let closed = config["closed"] as? Bool,
                             closed == false,
-                            let open = dayConfig["open"] as? String,
-                            let close = dayConfig["close"] as? String
+                            let open = config["open"] as? String,
+                            let close = config["close"] as? String
                         else { continue }
 
                         guard
                             let startDate = self.makeDate(on: day, timeHHmm: open),
-                            let endDate = self.makeDate(on: day, timeHHmm: close),
-                            endDate > startDate
+                            let endDate = self.makeDate(on: day, timeHHmm: close)
                         else { continue }
 
                         let docId = day.dateId()
-                        let docRef = staffRef
+
+                        try await staffRef
                             .collection("availability")
                             .document(docId)
-
-                        // Append-only: skip if already exists
-                        let existing = try await docRef.getDocument()
-                        if existing.exists { continue }
-
-                        try await docRef.setData([
-                            "date": Timestamp(date: self.calendar.startOfDay(for: day)),
-                            "startTime": Timestamp(date: startDate),
-                            "endTime": Timestamp(date: endDate),
-                            "generatedAt": FieldValue.serverTimestamp()
-                        ])
+                            .setData([
+                                "date": Timestamp(date: day),
+                                "startTime": Timestamp(date: startDate),
+                                "endTime": Timestamp(date: endDate),
+                                "generatedAt": FieldValue.serverTimestamp()
+                            ])
                     }
 
                     completion(.success(()))
@@ -91,16 +124,13 @@ final class AvailabilityGenerator {
         }
     }
 
-    // MARK: - Helpers
-
     private func makeDate(on day: Date, timeHHmm: String) -> Date? {
         let parts = timeHHmm.split(separator: ":")
-        guard
-            parts.count == 2,
-            let hour = Int(parts[0]),
-            let minute = Int(parts[1])
+        guard parts.count == 2,
+              let h = Int(parts[0]),
+              let m = Int(parts[1])
         else { return nil }
 
-        return calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day)
+        return calendar.date(bySettingHour: h, minute: m, second: 0, of: day)
     }
 }

@@ -12,23 +12,33 @@ struct StartSelectionView: View {
         VStack(spacing: 28) {
 
             emailVerificationBanner
-
             header
 
             VStack(spacing: 16) {
 
+                // ✅ CREATE ACCOUNT (NEW USERS)
                 Button {
-                    authManager.setRole(.business)
-                    nav.reset()
-                    nav.path.append(.businessGate)
+                    nav.path.append(.register)
                 } label: {
                     selectionCard(
-                        icon: "briefcase.fill",
-                        title: "I am a Business",
-                        subtitle: "Manage bookings, services, and customers"
+                        icon: "person.crop.circle.badge.plus",
+                        title: "Create an account",
+                        subtitle: "Sign up to book services or manage a business"
                     )
                 }
 
+                // ✅ LOG IN (EXISTING USERS)
+                Button {
+                    nav.path.append(.login)
+                } label: {
+                    selectionCard(
+                        icon: "person.crop.circle",
+                        title: "Log in",
+                        subtitle: "Access your existing account"
+                    )
+                }
+
+                // CUSTOMER FLOW
                 Button {
                     authManager.setRole(.customer)
                     nav.reset()
@@ -41,15 +51,18 @@ struct StartSelectionView: View {
                     )
                 }
 
-                // ✅ Always available
+                // BUSINESS FLOW
                 Button {
-                    nav.path.append(.login)
+                    authManager.setRole(.business)
+                    nav.reset()
+                    nav.path.append(.businessGate)
                 } label: {
-                    Text("Log in / Create account")
-                        .frame(maxWidth: .infinity)
+                    selectionCard(
+                        icon: "briefcase.fill",
+                        title: "I am a Business",
+                        subtitle: "Manage bookings, services, and customers"
+                    )
                 }
-                .buttonStyle(.bordered)
-                .padding(.top, 6)
             }
 
             Spacer()
@@ -57,8 +70,10 @@ struct StartSelectionView: View {
         .padding()
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
     }
 
+    // MARK: - Email verification banner
     @ViewBuilder
     private var emailVerificationBanner: some View {
         if let user = Auth.auth().currentUser,
@@ -92,6 +107,7 @@ struct StartSelectionView: View {
         }
     }
 
+    // MARK: - Header
     private var header: some View {
         VStack(spacing: 8) {
             Image(systemName: "link.circle.fill")
@@ -102,11 +118,12 @@ struct StartSelectionView: View {
             Text("Welcome to LocalLink")
                 .font(.largeTitle.bold())
 
-            Text("How can we help you today?")
+            Text("Get started by creating an account or logging in")
                 .foregroundColor(.secondary)
         }
     }
 
+    // MARK: - Selection Card
     private func selectionCard(icon: String, title: String, subtitle: String) -> some View {
         HStack(spacing: 20) {
             Image(systemName: icon)
@@ -130,3 +147,4 @@ struct StartSelectionView: View {
         .cornerRadius(18)
     }
 }
+

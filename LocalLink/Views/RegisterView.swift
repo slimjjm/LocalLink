@@ -1,14 +1,21 @@
 import SwiftUI
+import FirebaseAuth
+import FirebaseFirestore
 
 struct RegisterView: View {
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var authManager: AuthManager
 
+    @State private var name = ""
     @State private var email = ""
     @State private var password = ""
     @State private var confirm = ""
+    @State private var showPassword = false
+    @State private var showConfirm = false
     @State private var localError: String?
+
+    private let db = Firestore.firestore()
 
     var body: some View {
         VStack(spacing: 18) {
@@ -19,6 +26,15 @@ struct RegisterView: View {
                 .font(.largeTitle.bold())
 
             VStack(spacing: 14) {
+
+                // MARK: - Name
+                TextField("Full name", text: $name)
+                    .textInputAutocapitalization(.words)
+                    .padding()
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(12)
+
+                // MARK: - Email
                 TextField("Email", text: $email)
                     .keyboardType(.emailAddress)
                     .textInputAutocapitalization(.never)
@@ -27,17 +43,46 @@ struct RegisterView: View {
                     .background(Color(.secondarySystemBackground))
                     .cornerRadius(12)
 
-                SecureField("Password", text: $password)
-                    .padding()
-                    .background(Color(.secondarySystemBackground))
-                    .cornerRadius(12)
+                // MARK: - Password
+                HStack {
+                    Group {
+                        if showPassword {
+                            TextField("Password", text: $password)
+                        } else {
+                            SecureField("Password", text: $password)
+                        }
+                    }
 
-                SecureField("Confirm password", text: $confirm)
-                    .padding()
-                    .background(Color(.secondarySystemBackground))
-                    .cornerRadius(12)
+                    Button(showPassword ? "Hide" : "Show") {
+                        showPassword.toggle()
+                    }
+                    .font(.caption)
+                }
+                .padding()
+                .background(Color(.secondarySystemBackground))
+                .cornerRadius(12)
+
+                // MARK: - Confirm Password
+                HStack {
+                    Group {
+                        if showConfirm {
+                            TextField("Confirm password", text: $confirm)
+                        } else {
+                            SecureField("Confirm password", text: $confirm)
+                        }
+                    }
+
+                    Button(showConfirm ? "Hide" : "Show") {
+                        showConfirm.toggle()
+                    }
+                    .font(.caption)
+                }
+                .padding()
+                .background(Color(.secondarySystemBackground))
+                .cornerRadius(12)
             }
 
+            // MARK: - Errors
             if let localError {
                 Text(localError)
                     .foregroundColor(.red)
@@ -48,6 +93,7 @@ struct RegisterView: View {
                     .multilineTextAlignment(.center)
             }
 
+            // MARK: - Create Account Button
             Button {
                 signUpTapped()
             } label: {
@@ -68,18 +114,49 @@ struct RegisterView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    // MARK: - Sign Up Logic
+
     private func signUpTapped() {
         localError = nil
 
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let e = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !e.isEmpty else { localError = "Please enter your email."; return }
-        guard password.count >= 6 else { localError = "Password must be at least 6 characters."; return }
-        guard password == confirm else { localError = "Passwords do not match."; return }
+
+        guard !n.isEmpty else {
+            localError = "Please enter your name."
+            return
+        }
+
+        guard !e.isEmpty else {
+            localError = "Please enter your email."
+            return
+        }
+
+        guard password.count >= 6 else {
+            localError = "Password must be at least 6 characters."
+            return
+        }
+
+        guard password == confirm else {
+            localError = "Passwords do not match."
+            return
+        }
 
         authManager.signUp(email: e, password: password) { success in
-            if success {
-                dismiss()
-            }
+            guard success else { return }
+
+            guard let uid = Auth.auth().currentUser?.uid else { return }
+
+            // 🔥 Save profile to Firestore
+            db.collection("users")
+                .document(uid)
+                .setData([
+                    "name": n,
+                    "email": e,
+                    "createdAt": FieldValue.serverTimestamp()
+                ], merge: true)
+
+            dismiss()
         }
     }
 }

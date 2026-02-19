@@ -23,8 +23,8 @@ struct WeeklyAvailabilityEditView: View {
     @State private var generatedUntil: Date?
 
     private let repo = StaffWeeklyAvailabilityRepository()
-    private let horizonService = AvailabilityHorizonService()
     private let calendar = Calendar.current
+    private let db = Firestore.firestore()
 
     var body: some View {
         Form {
@@ -38,6 +38,7 @@ struct WeeklyAvailabilityEditView: View {
                 HStack {
                     Text("Generated until")
                     Spacer()
+
                     if let generatedUntil {
                         Text(generatedUntil.formatted(date: .abbreviated, time: .omitted))
                             .foregroundColor(.secondary)
@@ -77,6 +78,7 @@ struct WeeklyAvailabilityEditView: View {
                                         selection: $day.openTime,
                                         displayedComponents: .hourAndMinute
                                     )
+
                                     DatePicker(
                                         "Close",
                                         selection: $day.closeTime,
@@ -109,7 +111,7 @@ struct WeeklyAvailabilityEditView: View {
                 } label: {
                     HStack {
                         if isSaving { ProgressView() }
-                        Text(isSaving ? "Saving…" : "Save & generate next 14 days")
+                        Text(isSaving ? "Saving…" : "Save & regenerate availability")
                     }
                 }
                 .disabled(isLoading || isSaving)
@@ -120,7 +122,8 @@ struct WeeklyAvailabilityEditView: View {
         .onAppear { load() }
     }
 
-    // MARK: - Load
+    // MARK: - Load Weekly Template
+
     private func load() {
         guard let staffId = staff.id else {
             isLoading = false
@@ -133,6 +136,7 @@ struct WeeklyAvailabilityEditView: View {
                 self.isLoading = false
 
                 switch result {
+
                 case .failure(let error):
                     self.errorMessage = error.localizedDescription
 
@@ -152,7 +156,8 @@ struct WeeklyAvailabilityEditView: View {
         }
     }
 
-    // MARK: - Save + Generate
+    // MARK: - Save + FULL REGENERATE (Correct architecture)
+
     private func saveAndGenerate() {
         guard let staffId = staff.id else { return }
 
@@ -176,6 +181,7 @@ struct WeeklyAvailabilityEditView: View {
 
         repo.saveWeek(businessId: businessId, staffId: staffId, week: week) { result in
             switch result {
+
             case .failure(let error):
                 DispatchQueue.main.async {
                     self.errorMessage = error.localizedDescription
@@ -187,27 +193,29 @@ struct WeeklyAvailabilityEditView: View {
                 break
             }
 
-            Task {
-                _ = await horizonService.ensureHorizon(
+            // 🔥 Fire regeneration in background so UI never locks
+            Task.detached {
+                AvailabilityGenerator().regenerateNextDays(
                     businessId: businessId,
                     staffId: staffId,
-                    horizonDays: 14
-                )
+                    numberOfDays: 60
+                ) { _ in }
+            }
 
-                await refreshGeneratedUntil(staffId: staffId)
-
-                await MainActor.run {
-                    self.isSaving = false
-                    dismiss()
-                }
+            // Immediately unlock UI
+            DispatchQueue.main.async {
+                self.isSaving = false
+                self.dismiss()
             }
         }
     }
 
-    // MARK: - Generated until
+
+    // MARK: - Generated Until Label
+
     private func refreshGeneratedUntil(staffId: String) async {
         do {
-            let snap = try await Firestore.firestore()
+            let snap = try await db
                 .collection("businesses")
                 .document(businessId)
                 .collection("staff")
@@ -227,8 +235,9 @@ struct WeeklyAvailabilityEditView: View {
             await MainActor.run {
                 self.generatedUntil = calendar.startOfDay(for: ts.dateValue())
             }
+
         } catch {
-            // silent: label is non-critical
+            // non-critical
         }
     }
 
@@ -239,4 +248,3 @@ struct WeeklyAvailabilityEditView: View {
         return f.date(from: hhmm) ?? Date()
     }
 }
-

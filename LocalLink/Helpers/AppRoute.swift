@@ -23,9 +23,12 @@ enum AppRoute: Hashable {
         serviceId: String,
         staffId: String,
         date: Date,
-        time: Date
+        time: Date,
+        customerAddress: String?
     )
 
-    case bookingSuccess
+    case bookingSuccess(businessId: String)
+
     case bookingDetail(bookingId: String)
 }
+

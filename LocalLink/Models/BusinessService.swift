@@ -10,8 +10,11 @@ struct BusinessService: Identifiable, Codable {
     let price: Double
     let durationMinutes: Int
 
+    // NEW: where the service happens
+    // "in_store" (default) or "mobile"
+    let locationType: String?
+
     // Optional so older docs decode safely
     let isActive: Bool?
     let createdAt: Date?
 }
-

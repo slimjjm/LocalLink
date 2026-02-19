@@ -6,33 +6,61 @@ struct RootView: View {
     @EnvironmentObject private var nav: NavigationState
     @EnvironmentObject private var authManager: AuthManager
 
-    @State private var isAuthResolved = false
+    @State private var showLoading = true
 
     var body: some View {
-        NavigationStack(path: $nav.path) {
-
-            Group {
-                if !isAuthResolved {
-                    ProgressView()
-                } else {
-                    StartSelectionView()
+        Group {
+            if showLoading {
+                LoadingView()
+            } else {
+                NavigationStack(path: $nav.path) {
+                    rootContent
+                        .navigationDestination(for: AppRoute.self) { route in
+                            destination(for: route)
+                        }
                 }
-            }
-            .navigationDestination(for: AppRoute.self) { route in
-                destination(for: route)
             }
         }
         .onAppear {
             listenForAuthChanges()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .didSelectRole)) { _ in
+            nav.reset()
+        }
     }
+
+    // MARK: - Root Router
+
+    @ViewBuilder
+    private var rootContent: some View {
+
+        // 1️⃣ NOT LOGGED IN
+        if Auth.auth().currentUser == nil {
+            WelcomeView()
+        }
+
+        // 2️⃣ LOGGED IN + ROLE EXISTS
+        else if let role = authManager.role {
+            switch role {
+            case .customer:
+                CustomerHomeView()
+
+            case .business:
+                BusinessGateView()
+            }
+        }
+
+        // 3️⃣ LOGGED IN BUT NO ROLE CHOSEN YET
+        else {
+            RoleSelectionView()
+        }
+    }
+
+    // MARK: - Navigation Destinations
 
     @ViewBuilder
     private func destination(for route: AppRoute) -> some View {
         switch route {
-
-        case .startSelection:
-            StartSelectionView()
 
         case .login:
             LoginView()
@@ -52,33 +80,39 @@ struct RootView: View {
         case .businessHome:
             BusinessHomeView()
 
-        case .bookingSummary(let businessId, let serviceId, let staffId, let date, let time):
+        case .bookingSummary(let businessId, let serviceId, let staffId, let date, let time, let customerAddress):
             BookingSummaryView(
                 businessId: businessId,
                 serviceId: serviceId,
                 staffId: staffId,
                 date: date,
-                time: time
+                time: time,
+                customerAddress: customerAddress   // <-- important fix
             )
 
-        case .bookingSuccess:
-            BookingSuccessView()
+        case .bookingSuccess(let businessId):
+            BookingSuccessView(businessId: businessId)
 
         case .bookingDetail(let bookingId):
             BookingDetailView(bookingId: bookingId)
+
+        case .startSelection:
+            RoleSelectionView()
         }
     }
 
+    // MARK: - Auth Listener
+
     private func listenForAuthChanges() {
         Auth.auth().addStateDidChangeListener { _, user in
-            DispatchQueue.main.async {
-                self.isAuthResolved = true
 
-                if user == nil {
-                    // If the user signed out, clear role and pop to root
-                    self.nav.reset()
-                    self.authManager.clearRole()
-                }
+            DispatchQueue.main.async {
+                self.showLoading = false
+            }
+
+            if user == nil {
+                nav.reset()
+                authManager.clearRole()
             }
         }
     }

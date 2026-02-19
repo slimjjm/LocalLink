@@ -8,6 +8,7 @@ struct TimeSlotSelectorView: View {
     let businessId: String
     let service: BusinessService
     let date: Date
+    let customerAddress: String?   // 👈 NEW
 
     @EnvironmentObject private var nav: NavigationState
 
@@ -73,7 +74,8 @@ struct TimeSlotSelectorView: View {
                             serviceId: serviceId,
                             staffId: staffId,
                             date: date,
-                            time: selectedSlot
+                            time: selectedSlot,
+                            customerAddress: customerAddress   // 👈 passed forward
                         )
                     )
                 } label: {
@@ -105,10 +107,7 @@ struct TimeSlotSelectorView: View {
         }
     }
 
-    // MARK: - Date-based availability
-
     private func loadDateAvailability() {
-
         let docId = date.dateId()
         let group = DispatchGroup()
 
@@ -116,7 +115,7 @@ struct TimeSlotSelectorView: View {
             .document(businessId)
             .collection("staff")
             .whereField("isActive", isEqualTo: true)
-            .getDocuments { snapshot, error in
+            .getDocuments { snapshot, _ in
 
                 let staffList = snapshot?.documents.compactMap {
                     try? $0.data(as: Staff.self)
@@ -146,9 +145,7 @@ struct TimeSlotSelectorView: View {
                             let data = snap?.data(),
                             let startTimestamp = data["startTime"] as? Timestamp,
                             let endTimestamp = data["endTime"] as? Timestamp
-                        else {
-                            return
-                        }
+                        else { return }
 
                         let start = startTimestamp.dateValue()
                         let end = endTimestamp.dateValue()
@@ -161,11 +158,7 @@ struct TimeSlotSelectorView: View {
 
                         let availableSlots = slots.filter { slot in
                             !self.bookedSlots.contains {
-                                Calendar.current.isDate(
-                                    slot,
-                                    equalTo: $0,
-                                    toGranularity: .minute
-                                )
+                                Calendar.current.isDate(slot, equalTo: $0, toGranularity: .minute)
                             }
                         }
 
@@ -187,11 +180,7 @@ struct TimeSlotSelectorView: View {
             }
     }
 
-    // MARK: - Bookings
-
-    private func fetchBookedSlots(
-        completion: @escaping (Set<Date>) -> Void
-    ) {
+    private func fetchBookedSlots(completion: @escaping (Set<Date>) -> Void) {
         let calendar = Calendar.current
         let startOfDay = calendar.startOfDay(for: date)
         let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
@@ -211,14 +200,7 @@ struct TimeSlotSelectorView: View {
             }
     }
 
-    // MARK: - Slot generation
-
-    private func generateSlots(
-        start: Date,
-        end: Date,
-        duration: Int
-    ) -> [Date] {
-
+    private func generateSlots(start: Date, end: Date, duration: Int) -> [Date] {
         var slots: [Date] = []
         var current = start
 

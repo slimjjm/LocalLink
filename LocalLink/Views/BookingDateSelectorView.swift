@@ -5,6 +5,7 @@ struct BookingDateSelectorView: View {
     // MARK: - Inputs
     let businessId: String
     let service: BusinessService
+    let customerAddress: String?   // passed from AddressCaptureView (or nil)
 
     // MARK: - State
     @State private var selectedDate: Date = Date()
@@ -26,8 +27,9 @@ struct BookingDateSelectorView: View {
             NavigationLink {
                 TimeSlotSelectorView(
                     businessId: businessId,
-                    service: service,   // ✅ FIXED
-                    date: selectedDate
+                    service: service,
+                    date: selectedDate,
+                    customerAddress: customerAddress   // 👈 pass forward
                 )
             } label: {
                 Text("Next")
@@ -41,4 +43,3 @@ struct BookingDateSelectorView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 }
-

@@ -1,6 +1,7 @@
 import SwiftUI
 import FirebaseFirestore
 import FirebaseFirestoreSwift
+import UIKit
 
 struct BookingDetailView: View {
 
@@ -33,6 +34,11 @@ struct BookingDetailView: View {
                     .multilineTextAlignment(.center)
             }
 
+            else {
+                Text("Booking not found")
+                    .foregroundColor(.secondary)
+            }
+
             Spacer()
         }
         .padding()
@@ -46,15 +52,21 @@ struct BookingDetailView: View {
     // MARK: - UI
 
     private func details(for booking: Booking) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 18) {
 
             Text(booking.serviceName)
                 .font(.largeTitle.bold())
 
+            Divider()
+
             infoRow("Staff", booking.staffName)
 
             if !booking.location.isEmpty {
-                infoRow("Location", booking.location)
+                Button {
+                    openInMaps(booking.location)
+                } label: {
+                    infoRow("Address", booking.location)
+                }
             }
 
             infoRow(
@@ -73,9 +85,21 @@ struct BookingDetailView: View {
                 )
             )
 
+            infoRow("Duration", "\(booking.serviceDurationMinutes) mins")
+
+            infoRow("Price", String(format: "£%.2f", booking.price))
+
             infoRow(
                 "Status",
                 booking.status.rawValue.capitalized
+            )
+
+            infoRow(
+                "Booked",
+                booking.createdAt.formatted(
+                    date: .abbreviated,
+                    time: .shortened
+                )
             )
         }
     }
@@ -84,9 +108,37 @@ struct BookingDetailView: View {
         HStack(alignment: .top) {
             Text(label)
                 .foregroundColor(.secondary)
+
             Spacer()
+
             Text(value)
                 .multilineTextAlignment(.trailing)
+        }
+    }
+
+    // MARK: - Maps
+
+    private func openInMaps(_ address: String) {
+        let encoded = address.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+
+        let googleURL = URL(string: "comgooglemaps://?daddr=\(encoded)&directionsmode=driving")
+        let wazeURL = URL(string: "waze://?q=\(encoded)&navigate=yes")
+        let appleURL = URL(string: "http://maps.apple.com/?daddr=\(encoded)")
+
+        if let googleURL,
+           UIApplication.shared.canOpenURL(googleURL) {
+            UIApplication.shared.open(googleURL)
+            return
+        }
+
+        if let wazeURL,
+           UIApplication.shared.canOpenURL(wazeURL) {
+            UIApplication.shared.open(wazeURL)
+            return
+        }
+
+        if let appleURL {
+            UIApplication.shared.open(appleURL)
         }
     }
 
@@ -107,8 +159,14 @@ struct BookingDetailView: View {
                         return
                     }
 
-                    self.booking = try? snapshot?.data(as: Booking.self)
+                    guard let snapshot else {
+                        self.errorMessage = "Booking not found."
+                        return
+                    }
+
+                    self.booking = try? snapshot.data(as: Booking.self)
                 }
             }
     }
 }
+

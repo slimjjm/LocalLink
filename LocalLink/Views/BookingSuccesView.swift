@@ -1,8 +1,15 @@
 import SwiftUI
+import FirebaseFirestore
 
 struct BookingSuccessView: View {
 
+    let businessId: String
+
     @EnvironmentObject private var nav: NavigationState
+
+    @State private var serviceArea: String = ""
+
+    private let db = Firestore.firestore()
 
     var body: some View {
         VStack(spacing: 28) {
@@ -14,8 +21,15 @@ struct BookingSuccessView: View {
 
             // Main message
             VStack(spacing: 10) {
+
                 Text("Booking confirmed")
                     .font(.largeTitle.bold())
+
+                if !serviceArea.isEmpty {
+                    Label(serviceArea, systemImage: "mappin.and.ellipse")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
 
                 Text("Your appointment has been successfully booked.")
                     .foregroundColor(.secondary)
@@ -41,9 +55,25 @@ struct BookingSuccessView: View {
         .padding()
         .navigationBarBackButtonHidden(true)
         .onAppear {
+            loadBusiness()
+
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 nav.path.append(AppRoute.customerHome)
             }
         }
     }
+
+    // MARK: - Load service area (Apple-safe)
+
+    private func loadBusiness() {
+        db.collection("businesses")
+            .document(businessId)
+            .getDocument { snapshot, _ in
+                DispatchQueue.main.async {
+                    self.serviceArea =
+                        snapshot?.data()?["serviceArea"] as? String ?? ""
+                }
+            }
+    }
 }
+

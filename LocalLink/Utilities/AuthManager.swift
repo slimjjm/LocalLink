@@ -1,6 +1,8 @@
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseCore
+import GoogleSignIn
 
 @MainActor
 final class AuthManager: ObservableObject {
@@ -18,7 +20,6 @@ final class AuthManager: ObservableObject {
     @AppStorage("userRole") private var storedRole: String?
     @AppStorage("allowAnonymousAuth") private var allowAnonymousAuth = true
 
-    // Lazy Firestore (safe at launch)
     private lazy var db = Firestore.firestore()
 
     // MARK: - Init
@@ -35,8 +36,8 @@ final class AuthManager: ObservableObject {
 
     // MARK: - Session bootstrap
     private func startSessionIfNeeded() {
-        if Auth.auth().currentUser == nil && allowAnonymousAuth {
-            signInAnonymously()
+        if Auth.auth().currentUser == nil && allowAnonymousAuth == true {
+            // Guest session only created when user taps guest
         }
     }
 
@@ -63,12 +64,8 @@ final class AuthManager: ObservableObject {
         }
     }
 
-    // MARK: - Login
-    func login(
-        email: String,
-        password: String,
-        completion: @escaping (Bool) -> Void
-    ) {
+    // MARK: - Email Login
+    func login(email: String, password: String, completion: @escaping (Bool) -> Void) {
         isLoading = true
         errorMessage = nil
 
@@ -87,12 +84,8 @@ final class AuthManager: ObservableObject {
         }
     }
 
-    // MARK: - Register
-    func signUp(
-        email: String,
-        password: String,
-        completion: @escaping (Bool) -> Void
-    ) {
+    // MARK: - Email Register
+    func signUp(email: String, password: String, completion: @escaping (Bool) -> Void) {
         isLoading = true
         errorMessage = nil
 
@@ -137,10 +130,56 @@ final class AuthManager: ObservableObject {
         }
     }
 
+    // MARK: - Google Sign In
+    func signInWithGoogle() {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let rootVC = windowScene.windows.first?.rootViewController else {
+            print("❌ No root view controller")
+            return
+        }
+
+        guard let clientID = FirebaseApp.app()?.options.clientID else {
+            print("❌ Missing Firebase clientID")
+            return
+        }
+
+        let config = GIDConfiguration(clientID: clientID)
+        GIDSignIn.sharedInstance.configuration = config
+
+        GIDSignIn.sharedInstance.signIn(withPresenting: rootVC) { result, error in
+            if let error = error {
+                print("❌ Google sign-in error:", error.localizedDescription)
+                return
+            }
+
+            guard let user = result?.user,
+                  let idToken = user.idToken?.tokenString else {
+                print("❌ Missing Google auth data")
+                return
+            }
+
+            let credential = GoogleAuthProvider.credential(
+                withIDToken: idToken,
+                accessToken: user.accessToken.tokenString
+            )
+
+            Auth.auth().signIn(with: credential) { _, error in
+                if let error = error {
+                    print("❌ Firebase Google login failed:", error.localizedDescription)
+                } else {
+                    print("✅ Google login success")
+                    self.allowAnonymousAuth = true
+                }
+            }
+        }
+    }
+
     // MARK: - Role
     func setRole(_ role: UserRole) {
         self.role = role
         storedRole = role.rawValue
+
+        NotificationCenter.default.post(name: .didSelectRole, object: nil)
         syncRoleToFirestore(role)
     }
 
@@ -149,7 +188,7 @@ final class AuthManager: ObservableObject {
         storedRole = nil
     }
 
-    // MARK: - Logout (NO NAVIGATION HERE)
+    // MARK: - Logout
     func logout() {
         clearRole()
 
@@ -170,10 +209,6 @@ final class AuthManager: ObservableObject {
 
         db.collection("users")
             .document(uid)
-            .setData(
-                ["role": role.rawValue],
-                merge: true
-            )
+            .setData(["role": role.rawValue], merge: true)
     }
 }
-

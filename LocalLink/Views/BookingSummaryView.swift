@@ -2,27 +2,33 @@ import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
 import FirebaseFirestoreSwift
+import FirebaseFunctions
+import StripePaymentSheet
 
 struct BookingSummaryView: View {
 
+    // MARK: - Inputs
     let businessId: String
     let serviceId: String
     let staffId: String
     let date: Date
     let time: Date
+    let customerAddress: String?
 
     @EnvironmentObject private var nav: NavigationState
 
+    // MARK: - Loaded data
     @State private var service: BusinessService?
     @State private var staff: Staff?
+    @State private var serviceArea: String = ""
 
-    // ✅ Safe static location (prevents spinner + reviewer dead-end)
-    @State private var location: String = "At business location"
-
-    @State private var lastVerificationEmailSentAt: Date?
+    // MARK: - UI State
     @State private var isSubmitting = false
     @State private var errorMessage: String?
-    @State private var showAuthCTA = false
+
+    // MARK: - Stripe
+    @State private var paymentSheet: PaymentSheet?
+    @State private var paymentIntentId: String?
 
     private let bookingService = BookingService()
     private let db = Firestore.firestore()
@@ -34,27 +40,18 @@ struct BookingSummaryView: View {
                 .font(.largeTitle.bold())
 
             if let service, let staff {
-                summary(service: service, staff: staff, location: location)
+                summaryView(service: service, staff: staff)
             } else {
-                ProgressView("Loading details…")
+                ProgressView("Loading booking details…")
             }
 
             if let errorMessage {
-                VStack(spacing: 12) {
-                    Text(errorMessage)
-                        .foregroundColor(.red)
-                        .multilineTextAlignment(.center)
-
-                    if showAuthCTA {
-                        Button("Log in or Create account") {
-                            nav.path.append(.startSelection)
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                }
+                Text(errorMessage)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
             }
 
-            Button(action: confirmBooking) {
+            Button(action: startPaymentFlow) {
                 if isSubmitting {
                     ProgressView()
                 } else {
@@ -73,15 +70,15 @@ struct BookingSummaryView: View {
 
     // MARK: - Summary UI
 
-    private func summary(
-        service: BusinessService,
-        staff: Staff,
-        location: String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private func summaryView(service: BusinessService, staff: Staff) -> some View {
+        let locationText = customerAddress ?? serviceArea
+
+        return VStack(alignment: .leading, spacing: 12) {
             row("Service", service.name)
             row("Staff", staff.name)
-            row("Location", location)
+            if !locationText.isEmpty {
+                row("Location", locationText)
+            }
             row("Price", String(format: "£%.2f", service.price))
             row("Duration", "\(service.durationMinutes) mins")
             row("Date", date.formatted(date: .long, time: .omitted))
@@ -98,7 +95,7 @@ struct BookingSummaryView: View {
         }
     }
 
-    // MARK: - Load data (Apple-safe)
+    // MARK: - Load Firestore Data
 
     private func loadData() {
 
@@ -107,9 +104,7 @@ struct BookingSummaryView: View {
             .collection("services")
             .document(serviceId)
             .getDocument { snapshot, _ in
-                DispatchQueue.main.async {
-                    self.service = try? snapshot?.data(as: BusinessService.self)
-                }
+                self.service = try? snapshot?.data(as: BusinessService.self)
             }
 
         db.collection("businesses")
@@ -117,50 +112,35 @@ struct BookingSummaryView: View {
             .collection("staff")
             .document(staffId)
             .getDocument { snapshot, _ in
-                DispatchQueue.main.async {
-                    self.staff = try? snapshot?.data(as: Staff.self)
-                }
+                self.staff = try? snapshot?.data(as: Staff.self)
+            }
+
+        db.collection("businesses")
+            .document(businessId)
+            .getDocument { snapshot, _ in
+                self.serviceArea =
+                    snapshot?.data()?["serviceArea"] as? String ?? ""
             }
     }
 
-    // MARK: - Confirm booking
+    // MARK: - Payment Flow
+
+    private func startPaymentFlow() {
+        confirmBooking()
+    }
+
+    // MARK: - Confirm Booking
 
     private func confirmBooking() {
 
-        guard let service, let staff else { return }
-
-        errorMessage = nil
-        showAuthCTA = false
-
-        guard let user = Auth.auth().currentUser else {
-            errorMessage = "Please sign in to make a booking."
-            showAuthCTA = true
-            return
-        }
-
-        if user.isAnonymous {
-            errorMessage = "Please create an account to make a booking."
-            showAuthCTA = true
-            return
-        }
-
-        if !user.isEmailVerified {
-
-            let now = Date()
-            if let lastSent = lastVerificationEmailSentAt,
-               now.timeIntervalSince(lastSent) < 60 {
-                errorMessage = "Please verify your email before making a booking."
-                return
-            }
-
-            user.sendEmailVerification()
-            lastVerificationEmailSentAt = now
-
-            errorMessage = "Please verify your email. We’ve just sent you a verification email."
+        guard let service,
+              let staff,
+              let user = Auth.auth().currentUser else {
             return
         }
 
         isSubmitting = true
+        errorMessage = nil
 
         let endTime = Calendar.current.date(
             byAdding: .minute,
@@ -168,21 +148,31 @@ struct BookingSummaryView: View {
             to: time
         )!
 
+        let name = user.displayName ?? "Customer"
+
         bookingService.confirmBooking(
             businessId: businessId,
             customerId: user.uid,
+            customerName: name,
+            customerAddress: customerAddress ?? "Not Provided",
             service: service,
             staff: staff,
-            location: location,
+            location: serviceArea,
             date: date,
             startTime: time,
-            endTime: endTime
+            endTime: endTime,
+            paymentIntentId: paymentIntentId
         ) { result in
+
             DispatchQueue.main.async {
                 self.isSubmitting = false
-                if case .success = result {
-                    self.nav.path.append(.bookingSuccess)
-                } else if case .failure(let error) = result {
+
+                switch result {
+                case .success:
+                    self.nav.path.append(
+                        .bookingSuccess(businessId: businessId)
+                    )
+                case .failure(let error):
                     self.errorMessage = error.localizedDescription
                 }
             }

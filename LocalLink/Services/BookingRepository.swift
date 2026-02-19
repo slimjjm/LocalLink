@@ -5,13 +5,12 @@ final class BookingRepository {
 
     private let db = Firestore.firestore()
 
-    // MARK: - Create (CORRECT + RELIABLE)
+    // MARK: - Create
 
     func createBooking(
         _ booking: Booking,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-
         let ref = db.collection("bookings").document()
 
         do {
@@ -31,28 +30,7 @@ final class BookingRepository {
         }
     }
 
-    // MARK: - Cancel (Customer)
-
-    func cancelBookingByCustomer(
-        bookingId: String,
-        completion: @escaping (Result<Void, Error>) -> Void
-    ) {
-        db.collection("bookings")
-            .document(bookingId)
-            .updateData([
-                "status": BookingStatus.cancelledByCustomer.rawValue
-            ]) { error in
-                DispatchQueue.main.async {
-                    if let error {
-                        completion(.failure(error))
-                    } else {
-                        completion(.success(()))
-                    }
-                }
-            }
-    }
-
-    // MARK: - Cancel (Business)
+    // MARK: - Cancel (Business Only)
 
     func cancelBookingByBusiness(
         bookingId: String,
@@ -73,3 +51,4 @@ final class BookingRepository {
             }
     }
 }
+

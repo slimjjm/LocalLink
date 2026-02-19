@@ -1,5 +1,4 @@
 import SwiftUI
-import FirebaseFirestore
 
 struct BusinessProfileEditView: View {
 
@@ -22,6 +21,24 @@ struct BusinessProfileEditView: View {
                 Toggle("Business is active", isOn: $viewModel.isActive)
             }
 
+            Section("Service area") {
+
+                TextField(
+                    "e.g. Burntwood, Chasetown, Lichfield",
+                    text: $viewModel.serviceArea
+                )
+                .textInputAutocapitalization(.words)
+
+                Text("This is shown to customers so they know where you operate.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            if !viewModel.errorMessage.isEmpty {
+                Text(viewModel.errorMessage)
+                    .foregroundColor(.red)
+            }
+
             Section {
                 Button("Save changes") {
                     viewModel.save(businessId: businessId) {
@@ -33,10 +50,8 @@ struct BusinessProfileEditView: View {
         }
         .navigationTitle("Edit Profile")
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if viewModel.isSaving {
-                    ProgressView()
-                }
+            if viewModel.isSaving {
+                ProgressView()
             }
         }
         .onAppear {

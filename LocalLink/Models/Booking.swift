@@ -7,6 +7,7 @@ struct Booking: Identifiable, Codable {
 
     let businessId: String
     let customerId: String
+    let ownerId: String
 
     let location: String
 
@@ -18,10 +19,22 @@ struct Booking: Identifiable, Codable {
     let staffId: String
     let staffName: String
 
+    let customerName: String
+    let customerAddress: String
+
+    let paymentIntentId: String
+
+    // Refund polish
+    let refundId: String?
+    let refundedAt: Date?
+
     let date: Date
     let startDate: Date
     let endDate: Date
 
     let status: BookingStatus
     let createdAt: Date
+
+    var isPaid: Bool { !paymentIntentId.isEmpty }
+    var isRefunded: Bool { status == .refunded }
 }

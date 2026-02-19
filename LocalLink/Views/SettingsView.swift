@@ -17,14 +17,21 @@ struct SettingsView: View {
 
     private var supportSection: some View {
         Section("Support") {
+
+            NavigationLink("Your account") {
+                YourAccountView()
+            }
+
             Link(
                 "Privacy Policy",
                 destination: URL(string: "https://locallinkapp.co.uk/privacy")!
             )
+
             Link(
                 "Terms & Conditions",
                 destination: URL(string: "https://locallinkapp.co.uk/terms")!
             )
+
             Link(
                 "Contact us",
                 destination: URL(string: "https://locallinkapp.co.uk/contact")!

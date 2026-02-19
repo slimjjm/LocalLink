@@ -2,14 +2,16 @@ import SwiftUI
 
 struct CustomerHomeView: View {
 
+    @EnvironmentObject private var nav: NavigationState
+
     var body: some View {
         ScrollView {
             VStack(spacing: 28) {
-
                 headerSection
                 primaryAction
                 secondaryActions
                 settingsLink
+                switchRoleButton
                 legalSection
             }
             .padding()
@@ -17,9 +19,15 @@ struct CustomerHomeView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("LocalLink")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Change role") {
+                    nav.reset()
+                    nav.path.append(.startSelection)
+                }
+            }
+        }
     }
-
-    // MARK: - Header
 
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -32,48 +40,80 @@ struct CustomerHomeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Primary CTA
-
     private var primaryAction: some View {
         NavigationLink {
             BusinessListView()
         } label: {
-            HStack {
-                Image(systemName: "magnifyingglass")
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .font(.title2)
+                    Spacer()
+                    Image(systemName: "arrow.right")
+                        .font(.headline)
+                }
+
                 Text("Find a business")
-                    .font(.headline)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.footnote)
+                    .font(.title3.bold())
+
+                Text("Browse trusted local services and book instantly")
+                    .font(.subheadline)
+                    .foregroundColor(.white.opacity(0.85))
             }
             .padding()
-            .background(Color.accentColor)
+            .frame(maxWidth: .infinity, minHeight: 120)
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color.accentColor,
+                        Color.accentColor.opacity(0.85)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
             .foregroundColor(.white)
-            .cornerRadius(16)
+            .cornerRadius(20)
+            .shadow(radius: 10, y: 6)
         }
     }
-
-    // MARK: - Secondary actions
 
     private var secondaryActions: some View {
-        NavigationLink {
-            CustomerBookingsView()
-        } label: {
-            HStack {
-                Image(systemName: "calendar")
-                Text("My bookings")
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
+        VStack(spacing: 14) {
+            NavigationLink {
+                CustomerBookingsView()
+            } label: {
+                secondaryTile(
+                    icon: "calendar",
+                    title: "My bookings",
+                    subtitle: "View upcoming and past appointments"
+                )
             }
-            .padding()
-            .background(Color(.secondarySystemBackground))
-            .cornerRadius(14)
         }
     }
 
-    // MARK: - Settings
+    private func secondaryTile(icon: String, title: String, subtitle: String) -> some View {
+        HStack(spacing: 16) {
+            Image(systemName: icon)
+                .font(.title3)
+                .frame(width: 44, height: 44)
+                .background(Color.accentColor.opacity(0.15))
+                .foregroundColor(.accentColor)
+                .cornerRadius(12)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.headline)
+                Text(subtitle).font(.caption).foregroundColor(.secondary)
+            }
+
+            Spacer()
+            Image(systemName: "chevron.right")
+                .foregroundColor(.secondary)
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(16)
+    }
 
     private var settingsLink: some View {
         NavigationLink {
@@ -89,11 +129,42 @@ struct CustomerHomeView: View {
             }
             .padding()
             .background(Color(.secondarySystemBackground))
-            .cornerRadius(14)
+            .cornerRadius(16)
         }
     }
 
-    // MARK: - Legal
+    private var switchRoleButton: some View {
+        Button {
+            nav.reset()
+            nav.path.append(.startSelection)
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "arrow.uturn.backward.circle.fill")
+                    .font(.title2)
+                    .foregroundColor(.orange)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Back to welcome")
+                        .font(.headline)
+
+                    Text("Switch between customer and business mode")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+            }
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(Color(.secondarySystemBackground))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18)
+                            .stroke(Color.orange.opacity(0.35))
+                    )
+            )
+        }
+    }
 
     private var legalSection: some View {
         VStack(spacing: 6) {
@@ -111,4 +182,3 @@ struct CustomerHomeView: View {
         .padding(.top, 24)
     }
 }
-
