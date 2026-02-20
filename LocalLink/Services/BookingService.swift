@@ -24,7 +24,14 @@ final class BookingService {
         paymentIntentId: String? = nil,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-
+        guard paymentIntentId != nil else {
+            completion(.failure(NSError(
+                domain: "BookingService",
+                code: 402,
+                userInfo: [NSLocalizedDescriptionKey: "Payment required before booking."]
+            )))
+            return
+        }
         guard
             let serviceId = service.id,
             let staffId = staff.id

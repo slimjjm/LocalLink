@@ -6,22 +6,26 @@ final class AvailabilityGenerator {
     private let db = Firestore.firestore()
     private let calendar = Calendar.current
 
-    // MARK: - Public: Regenerate everything clean
+    // MARK: - Public: Regenerate EVERYTHING clean
     func regenerateNextDays(
         businessId: String,
         staffId: String,
         numberOfDays: Int,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
+
         let staffRef = db
             .collection("businesses")
             .document(businessId)
             .collection("staff")
             .document(staffId)
 
-        // 1) Delete ALL future availability
+        let batch = db.batch()
+
+        // 🔥 DELETE FUTURE AVAILABILITY
         staffRef.collection("availability")
             .getDocuments { [weak self] snapshot, error in
+
                 guard let self else { return }
 
                 if let error {
@@ -29,26 +33,38 @@ final class AvailabilityGenerator {
                     return
                 }
 
-                let batch = self.db.batch()
-
                 snapshot?.documents.forEach {
                     batch.deleteDocument($0.reference)
                 }
 
-                batch.commit { err in
-                    if let err {
-                        completion(.failure(err))
-                        return
-                    }
+                // 🔥 DELETE OLD SLOTS
+                staffRef.collection("availableSlots")
+                    .getDocuments { slotsSnap, err in
 
-                    // 2) Rebuild fresh
-                    self.generateNextDays(
-                        businessId: businessId,
-                        staffId: staffId,
-                        numberOfDays: numberOfDays,
-                        completion: completion
-                    )
-                }
+                        if let err {
+                            completion(.failure(err))
+                            return
+                        }
+
+                        slotsSnap?.documents.forEach {
+                            batch.deleteDocument($0.reference)
+                        }
+
+                        batch.commit { commitErr in
+                            if let commitErr {
+                                completion(.failure(commitErr))
+                                return
+                            }
+
+                            // 🔁 REBUILD EVERYTHING
+                            self.generateNextDays(
+                                businessId: businessId,
+                                staffId: staffId,
+                                numberOfDays: numberOfDays,
+                                completion: completion
+                            )
+                        }
+                    }
             }
     }
 
@@ -86,6 +102,7 @@ final class AvailabilityGenerator {
                     let today = self.calendar.startOfDay(for: Date())
 
                     for offset in 0..<numberOfDays {
+
                         guard let day = self.calendar.date(byAdding: .day, value: offset, to: today) else { continue }
 
                         let weekday = day.weekdayKey
@@ -105,6 +122,7 @@ final class AvailabilityGenerator {
 
                         let docId = day.dateId()
 
+                        // ✅ Save working window
                         try await staffRef
                             .collection("availability")
                             .document(docId)
@@ -114,9 +132,19 @@ final class AvailabilityGenerator {
                                 "endTime": Timestamp(date: endDate),
                                 "generatedAt": FieldValue.serverTimestamp()
                             ])
+
+                        // 🔥 Generate BOOKABLE SLOTS
+                        await SlotGenerator().generateSlotsForDay(
+                            businessId: businessId,
+                            staffId: staffId,
+                            date: day,
+                            startTime: startDate,
+                            endTime: endDate
+                        )
                     }
 
                     completion(.success(()))
+
                 } catch {
                     completion(.failure(error))
                 }
@@ -124,8 +152,11 @@ final class AvailabilityGenerator {
         }
     }
 
+    // MARK: - Helpers
     private func makeDate(on day: Date, timeHHmm: String) -> Date? {
+
         let parts = timeHHmm.split(separator: ":")
+
         guard parts.count == 2,
               let h = Int(parts[0]),
               let m = Int(parts[1])

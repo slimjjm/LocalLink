@@ -126,7 +126,80 @@ struct BookingSummaryView: View {
     // MARK: - Payment Flow
 
     private func startPaymentFlow() {
-        confirmBooking()
+
+        guard let service else { return }
+
+        isSubmitting = true
+        errorMessage = nil
+
+        let amount = Int(service.price * 100)
+
+        let functions = Functions.functions(region: "us-central1")
+
+        functions.httpsCallable("createPaymentIntent")
+            .call([
+                "amount": amount,
+                "currency": "gbp"
+            ]) { result, error in
+
+                if let error {
+                    DispatchQueue.main.async {
+                        self.errorMessage = error.localizedDescription
+                        self.isSubmitting = false
+                    }
+                    return
+                }
+
+                guard
+                    let data = result?.data as? [String: Any],
+                    let clientSecret = data["clientSecret"] as? String,
+                    let intentId = data["paymentIntentId"] as? String
+                else {
+                    DispatchQueue.main.async {
+                        self.errorMessage = "Payment setup failed"
+                        self.isSubmitting = false
+                    }
+                    return
+                }
+
+                var config = PaymentSheet.Configuration()
+                config.merchantDisplayName = "LocalLink"
+
+                self.paymentIntentId = intentId
+                self.paymentSheet = PaymentSheet(
+                    paymentIntentClientSecret: clientSecret,
+                    configuration: config
+                )
+
+                DispatchQueue.main.async {
+                    self.presentPaymentSheet()
+                }
+            }
+    }
+    
+    private func presentPaymentSheet() {
+
+        guard let paymentSheet else { return }
+
+        paymentSheet.present(from: UIApplication.shared.windows.first!.rootViewController!) { result in
+
+            switch result {
+
+            case .completed:
+                confirmBooking()
+
+            case .failed(let error):
+                DispatchQueue.main.async {
+                    self.errorMessage = error.localizedDescription
+                    self.isSubmitting = false
+                }
+
+            case .canceled:
+                DispatchQueue.main.async {
+                    self.isSubmitting = false
+                }
+            }
+        }
     }
 
     // MARK: - Confirm Booking

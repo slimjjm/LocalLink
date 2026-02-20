@@ -19,6 +19,12 @@ struct AddBlockTimeView: View {
     @State private var repeatUntil: Date =
         Calendar.current.date(byAdding: .month, value: 3, to: Date())!
 
+    // MARK: - Validation
+
+    private var isEndAfterStart: Bool {
+        endDate > startDate
+    }
+
     // MARK: - Options
 
     private let options = [
@@ -55,6 +61,7 @@ struct AddBlockTimeView: View {
                 DatePicker(
                     "End time",
                     selection: $endDate,
+                    in: startDate...,
                     displayedComponents: [.date, .hourAndMinute]
                 )
             }
@@ -72,6 +79,7 @@ struct AddBlockTimeView: View {
                     DatePicker(
                         "Repeat until",
                         selection: $repeatUntil,
+                        in: startDate...,
                         displayedComponents: .date
                     )
                 }
@@ -88,18 +96,25 @@ struct AddBlockTimeView: View {
                         Text("Save block")
                     }
                 }
-                .disabled(isSaving)
+                .disabled(isSaving || !isEndAfterStart)
             }
         }
         .navigationTitle("Block time")
         .onAppear {
             print("BLOCK TIME VIEW OPENED:", businessId)
         }
+        .onChange(of: startDate) { newStart in
+            if endDate <= newStart {
+                endDate = newStart.addingTimeInterval(1800)
+            }
+        }
     }
 
     // MARK: - Save
 
     private func save() {
+        guard isEndAfterStart else { return }
+
         isSaving = true
 
         service.addBlock(
@@ -117,4 +132,3 @@ struct AddBlockTimeView: View {
         }
     }
 }
-

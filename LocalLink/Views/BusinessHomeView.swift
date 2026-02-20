@@ -129,11 +129,11 @@ struct BusinessHomeView: View {
             HStack {
 
                 VStack(alignment: .leading) {
-                    Text("Earned")
+                    Text("Capacity")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    Text("£\(Double(bookingsVM.monthlyRevenueEarned)/100, specifier: "%.2f")")
+                    Text("\(Int(bookingsVM.percentMonthFilled))%")
                         .font(.title3.bold())
                 }
 
@@ -148,7 +148,15 @@ struct BusinessHomeView: View {
                         .font(.title3.bold())
                 }
             }
+            
+            VStack(alignment: .leading) {
+                Text("Max Possible")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
 
+                Text("£\(Double(bookingsVM.maxPossibleThisMonth)/100, specifier: "%.2f")")
+                    .font(.title3.bold())
+            }
             HStack {
 
                 VStack(alignment: .leading) {

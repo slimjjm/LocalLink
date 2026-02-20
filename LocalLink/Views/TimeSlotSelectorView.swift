@@ -4,25 +4,20 @@ import FirebaseFirestoreSwift
 
 struct TimeSlotSelectorView: View {
 
-    // MARK: - Inputs
     let businessId: String
     let service: BusinessService
     let date: Date
-    let customerAddress: String?   // 👈 NEW
+    let customerAddress: String?
 
     @EnvironmentObject private var nav: NavigationState
 
-    // MARK: - State
     @State private var slotToStaff: [Date: [Staff]] = [:]
     @State private var isLoading = true
     @State private var selectedSlot: Date?
     @State private var hasAnyAvailability = false
-    @State private var bookedSlots: Set<Date> = []
 
-    // MARK: - Firestore
     private let db = Firestore.firestore()
 
-    // MARK: - View
     var body: some View {
         VStack(spacing: 16) {
 
@@ -75,7 +70,7 @@ struct TimeSlotSelectorView: View {
                             staffId: staffId,
                             date: date,
                             time: selectedSlot,
-                            customerAddress: customerAddress   // 👈 passed forward
+                            customerAddress: customerAddress
                         )
                     )
                 } label: {
@@ -90,24 +85,87 @@ struct TimeSlotSelectorView: View {
         .padding()
         .navigationTitle("Time")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { loadAvailability() }
+        .onAppear {
+            loadAvailability()
+        }
     }
 
-    // MARK: - Availability loading
+    // MARK: - Load availability
 
     private func loadAvailability() {
         isLoading = true
         slotToStaff = [:]
         hasAnyAvailability = false
-        bookedSlots = []
 
-        fetchBookedSlots { booked in
-            bookedSlots = booked
-            loadDateAvailability()
+        fetchBookingsForDay { bookings in
+            fetchBlockedTimesForDay { blocks in
+                removeCollisionsAndLoad(
+                    bookings: bookings,
+                    blockedTimes: blocks
+                )
+            }
         }
     }
 
-    private func loadDateAvailability() {
+    // MARK: - Fetch bookings
+
+    private func fetchBookingsForDay(
+        completion: @escaping ([Booking]) -> Void
+    ) {
+
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+
+        db.collection("bookings")
+            .whereField("businessId", isEqualTo: businessId)
+            .whereField("startDate", isGreaterThanOrEqualTo: startOfDay)
+            .whereField("startDate", isLessThan: endOfDay)
+            .whereField("status", isEqualTo: "confirmed")
+            .getDocuments { snapshot, _ in
+
+                let bookings = snapshot?.documents.compactMap {
+                    try? $0.data(as: Booking.self)
+                } ?? []
+
+                completion(bookings)
+            }
+    }
+
+    // MARK: - Fetch blocked time (NO RANGE INDEX NEEDED)
+
+    private func fetchBlockedTimesForDay(
+        completion: @escaping ([BlockedTime]) -> Void
+    ) {
+
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+
+        db.collection("blockedTimes")
+            .whereField("businessId", isEqualTo: businessId)
+            .getDocuments { snapshot, _ in
+
+                let allBlocks = snapshot?.documents.compactMap {
+                    try? $0.data(as: BlockedTime.self)
+                } ?? []
+
+                let todaysBlocks = allBlocks.filter {
+                    $0.startDate < endOfDay &&
+                    $0.endDate > startOfDay
+                }
+
+                completion(todaysBlocks)
+            }
+    }
+
+    // MARK: - Collision logic
+
+    private func removeCollisionsAndLoad(
+        bookings: [Booking],
+        blockedTimes: [BlockedTime]
+    ) {
+
         let docId = date.dateId()
         let group = DispatchGroup()
 
@@ -120,11 +178,6 @@ struct TimeSlotSelectorView: View {
                 let staffList = snapshot?.documents.compactMap {
                     try? $0.data(as: Staff.self)
                 } ?? []
-
-                guard !staffList.isEmpty else {
-                    self.isLoading = false
-                    return
-                }
 
                 for staff in staffList {
                     guard let staffId = staff.id else { continue }
@@ -156,18 +209,37 @@ struct TimeSlotSelectorView: View {
                             duration: self.service.durationMinutes
                         )
 
-                        let availableSlots = slots.filter { slot in
-                            !self.bookedSlots.contains {
-                                Calendar.current.isDate(slot, equalTo: $0, toGranularity: .minute)
+                        let safeSlots = slots.filter { slot in
+
+                            let slotEnd = slot.addingTimeInterval(
+                                Double(self.service.durationMinutes * 60)
+                            )
+
+                            for booking in bookings {
+                                let slotRange = slot..<slotEnd
+                                let bookingRange = booking.startDate..<booking.endDate
+                                if slotRange.overlaps(bookingRange) {
+                                    return false
+                                }
                             }
+
+                            for block in blockedTimes {
+                                let slotRange = slot..<slotEnd
+                                let blockRange = block.startDate..<block.endDate
+                                if slotRange.overlaps(blockRange) {
+                                    return false
+                                }
+                            }
+
+                            return true
                         }
 
                         DispatchQueue.main.async {
-                            if !availableSlots.isEmpty {
+                            if !safeSlots.isEmpty {
                                 self.hasAnyAvailability = true
                             }
 
-                            for slot in availableSlots {
+                            for slot in safeSlots {
                                 self.slotToStaff[slot, default: []].append(staff)
                             }
                         }
@@ -180,27 +252,14 @@ struct TimeSlotSelectorView: View {
             }
     }
 
-    private func fetchBookedSlots(completion: @escaping (Set<Date>) -> Void) {
-        let calendar = Calendar.current
-        let startOfDay = calendar.startOfDay(for: date)
-        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+    // MARK: - Slot builder
 
-        db.collection("bookings")
-            .whereField("businessId", isEqualTo: businessId)
-            .whereField("startDate", isGreaterThanOrEqualTo: startOfDay)
-            .whereField("startDate", isLessThan: endOfDay)
-            .whereField("status", isEqualTo: "confirmed")
-            .getDocuments { snapshot, _ in
+    private func generateSlots(
+        start: Date,
+        end: Date,
+        duration: Int
+    ) -> [Date] {
 
-                let booked = snapshot?.documents.compactMap {
-                    ($0["startDate"] as? Timestamp)?.dateValue()
-                } ?? []
-
-                completion(Set(booked))
-            }
-    }
-
-    private func generateSlots(start: Date, end: Date, duration: Int) -> [Date] {
         var slots: [Date] = []
         var current = start
 
@@ -212,4 +271,3 @@ struct TimeSlotSelectorView: View {
         return slots
     }
 }
-

@@ -52,7 +52,6 @@
 				Models/StaffMember.swift,
 				Services/WeeklyAvailbilityRepository.swift,
 				Utilities/BookingAvailabilityValidator.swift,
-				ViewModels/Untitled.swift,
 				Views/AddServiceView.swift,
 				Views/Customer/BookingDetailView.swift,
 				Views/Views/StartSelectionView.swift,
