@@ -54,6 +54,7 @@
 				Utilities/BookingAvailabilityValidator.swift,
 				Views/AddServiceView.swift,
 				Views/Customer/BookingDetailView.swift,
+				Views/Untitled.swift,
 				Views/Views/StartSelectionView.swift,
 			);
 			target = 1886572B2EDDECEA00C1F0F9 /* LocalLink */;

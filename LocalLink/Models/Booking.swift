@@ -9,12 +9,12 @@ struct Booking: Identifiable, Codable {
     let customerId: String
     let ownerId: String
 
-    let location: String
-
     let serviceId: String
     let serviceName: String
     let serviceDurationMinutes: Int
-    let price: Double
+
+    /// Stored in pence (e.g. 2999 = £29.99)
+    let price: Int
 
     let staffId: String
     let staffName: String
@@ -22,19 +22,23 @@ struct Booking: Identifiable, Codable {
     let customerName: String
     let customerAddress: String
 
-    let paymentIntentId: String
-
-    // Refund polish
+    let paymentIntentId: String?
     let refundId: String?
     let refundedAt: Date?
 
+    /// Optional so older docs decode safely
+    let isPaid: Bool?
+
+    /// Optional “commercial day” (UK midnight) to avoid UTC drift
+    let bookingDay: Date?
+
+    /// (If you don’t actually use `date`, you can remove it later — but keep consistent with your writes)
     let date: Date
     let startDate: Date
     let endDate: Date
 
     let status: BookingStatus
-    let createdAt: Date
 
-    var isPaid: Bool { !paymentIntentId.isEmpty }
-    var isRefunded: Bool { status == .refunded }
+    /// Optional so older docs decode safely
+    let createdAt: Date?
 }

@@ -17,6 +17,9 @@ enum AppRoute: Hashable {
     case businessOnboarding
     case businessHome
 
+    // Staff
+    case editStaffSkills(businessId: String, staffId: String, navId: UUID)
+    case editWeeklyAvailability(businessId: String, staffId: String, navId: UUID)
     // Booking flow
     case bookingSummary(
         businessId: String,
@@ -28,7 +31,5 @@ enum AppRoute: Hashable {
     )
 
     case bookingSuccess(businessId: String)
-
     case bookingDetail(bookingId: String)
 }
-

@@ -31,6 +31,7 @@ struct BookingSummaryView: View {
     @State private var paymentIntentId: String?
 
     private let bookingService = BookingService()
+    private let functions = Functions.functions(region: "us-central1")
     private let db = Firestore.firestore()
 
     var body: some View {
@@ -51,7 +52,9 @@ struct BookingSummaryView: View {
                     .multilineTextAlignment(.center)
             }
 
-            Button(action: startPaymentFlow) {
+            Button {
+                startPaymentFlow()
+            } label: {
                 if isSubmitting {
                     ProgressView()
                 } else {
@@ -71,15 +74,20 @@ struct BookingSummaryView: View {
     // MARK: - Summary UI
 
     private func summaryView(service: BusinessService, staff: Staff) -> some View {
-        let locationText = customerAddress ?? serviceArea
+        let enteredAddress = (customerAddress ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let locationText = enteredAddress.isEmpty ? serviceArea : enteredAddress
 
         return VStack(alignment: .leading, spacing: 12) {
             row("Service", service.name)
             row("Staff", staff.name)
+
             if !locationText.isEmpty {
                 row("Location", locationText)
             }
+
+            // service.price is stored in POUNDS (Double)
             row("Price", String(format: "£%.2f", service.price))
+
             row("Duration", "\(service.durationMinutes) mins")
             row("Date", date.formatted(date: .long, time: .omitted))
             row("Time", time.formatted(date: .omitted, time: .shortened))
@@ -98,7 +106,6 @@ struct BookingSummaryView: View {
     // MARK: - Load Firestore Data
 
     private func loadData() {
-
         db.collection("businesses")
             .document(businessId)
             .collection("services")
@@ -118,29 +125,23 @@ struct BookingSummaryView: View {
         db.collection("businesses")
             .document(businessId)
             .getDocument { snapshot, _ in
-                self.serviceArea =
-                    snapshot?.data()?["serviceArea"] as? String ?? ""
+                self.serviceArea = snapshot?.data()?["serviceArea"] as? String ?? ""
             }
     }
 
     // MARK: - Payment Flow
 
     private func startPaymentFlow() {
-
         guard let service else { return }
 
-        isSubmitting = true
         errorMessage = nil
+        isSubmitting = true
 
-        let amount = Int(service.price * 100)
-
-        let functions = Functions.functions(region: "us-central1")
+        // Convert pounds -> pence for Stripe
+        let amountPence = Int((service.price * 100).rounded())
 
         functions.httpsCallable("createPaymentIntent")
-            .call([
-                "amount": amount,
-                "currency": "gbp"
-            ]) { result, error in
+            .call(["amount": amountPence]) { result, error in
 
                 if let error {
                     DispatchQueue.main.async {
@@ -156,7 +157,7 @@ struct BookingSummaryView: View {
                     let intentId = data["paymentIntentId"] as? String
                 else {
                     DispatchQueue.main.async {
-                        self.errorMessage = "Payment setup failed"
+                        self.errorMessage = "Payment setup failed."
                         self.isSubmitting = false
                     }
                     return
@@ -165,86 +166,84 @@ struct BookingSummaryView: View {
                 var config = PaymentSheet.Configuration()
                 config.merchantDisplayName = "LocalLink"
 
-                self.paymentIntentId = intentId
-                self.paymentSheet = PaymentSheet(
-                    paymentIntentClientSecret: clientSecret,
-                    configuration: config
-                )
-
                 DispatchQueue.main.async {
+                    self.paymentIntentId = intentId
+                    self.paymentSheet = PaymentSheet(
+                        paymentIntentClientSecret: clientSecret,
+                        configuration: config
+                    )
                     self.presentPaymentSheet()
                 }
             }
     }
-    
+
     private func presentPaymentSheet() {
+        guard let paymentSheet else {
+            self.isSubmitting = false
+            return
+        }
 
-        guard let paymentSheet else { return }
+        guard let vc = UIApplication.shared.topMostViewController() else {
+            self.errorMessage = "Unable to present payment sheet."
+            self.isSubmitting = false
+            return
+        }
 
-        paymentSheet.present(from: UIApplication.shared.windows.first!.rootViewController!) { result in
+        paymentSheet.present(from: vc) { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .completed:
+                    self.confirmBooking()
 
-            switch result {
-
-            case .completed:
-                confirmBooking()
-
-            case .failed(let error):
-                DispatchQueue.main.async {
+                case .failed(let error):
                     self.errorMessage = error.localizedDescription
                     self.isSubmitting = false
-                }
 
-            case .canceled:
-                DispatchQueue.main.async {
+                case .canceled:
                     self.isSubmitting = false
                 }
             }
         }
     }
 
-    // MARK: - Confirm Booking
+    // MARK: - Confirm Booking (after payment success)
 
     private func confirmBooking() {
-
-        guard let service,
-              let staff,
-              let user = Auth.auth().currentUser else {
+        guard
+            let service,
+            let staff,
+            let user = Auth.auth().currentUser
+        else {
+            self.errorMessage = "Missing booking details."
+            self.isSubmitting = false
             return
         }
 
-        isSubmitting = true
-        errorMessage = nil
+        let endTime = Calendar.current.date(byAdding: .minute, value: service.durationMinutes, to: time) ?? time
 
-        let endTime = Calendar.current.date(
-            byAdding: .minute,
-            value: service.durationMinutes,
-            to: time
-        )!
+        let name = (user.displayName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let safeName = name.isEmpty ? "Customer" : name
 
-        let name = user.displayName ?? "Customer"
+        let enteredAddress = (customerAddress ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let safeAddress = enteredAddress.isEmpty ? (serviceArea.isEmpty ? "Not Provided" : serviceArea) : enteredAddress
 
         bookingService.confirmBooking(
             businessId: businessId,
             customerId: user.uid,
-            customerName: name,
-            customerAddress: customerAddress ?? "Not Provided",
+            customerName: safeName,
+            customerAddress: safeAddress,
             service: service,
             staff: staff,
-            location: serviceArea,
             date: date,
             startTime: time,
             endTime: endTime,
             paymentIntentId: paymentIntentId
         ) { result in
-
             DispatchQueue.main.async {
                 self.isSubmitting = false
-
                 switch result {
                 case .success:
-                    self.nav.path.append(
-                        .bookingSuccess(businessId: businessId)
-                    )
+                    self.nav.path.append(.bookingSuccess(businessId: businessId))
                 case .failure(let error):
                     self.errorMessage = error.localizedDescription
                 }
@@ -253,3 +252,28 @@ struct BookingSummaryView: View {
     }
 }
 
+// MARK: - Top-most view controller helper (safe PaymentSheet present)
+
+private extension UIApplication {
+    func topMostViewController(base: UIViewController? = nil) -> UIViewController? {
+        let baseVC: UIViewController? = {
+            if let base { return base }
+            return connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap { $0.windows }
+                .first(where: { $0.isKeyWindow })?
+                .rootViewController
+        }()
+
+        if let nav = baseVC as? UINavigationController {
+            return topMostViewController(base: nav.visibleViewController)
+        }
+        if let tab = baseVC as? UITabBarController, let selected = tab.selectedViewController {
+            return topMostViewController(base: selected)
+        }
+        if let presented = baseVC?.presentedViewController {
+            return topMostViewController(base: presented)
+        }
+        return baseVC
+    }
+}

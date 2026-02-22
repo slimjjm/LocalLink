@@ -5,23 +5,25 @@ import FirebaseFirestoreSwift
 @MainActor
 final class BusinessBookingsViewModel: ObservableObject {
 
+    @Published var staff: [Staff] = []
+    
+    // MARK: - Booking Lists
     @Published var upcoming: [Booking] = []
     @Published var past: [Booking] = []
 
+    // MARK: - Monthly Stats (pence)
     @Published var monthlyRevenueEarned: Int = 0
-    @Published var monthlyProjectedIncome: Int = 0     // remaining capacity × avg service price
-    @Published var remainingThisMonth: Int = 0         // future confirmed £
+    @Published var remainingThisMonth: Int = 0
     @Published var monthlyRefunds: Int = 0
     @Published var monthlyCompletedCount: Int = 0
     @Published var percentMonthFilled: Double = 0
-    @Published var maxPossibleThisMonth: Int = 0       // total capacity × avg service price
+    @Published var monthlyProjectedIncome: Int = 0
+    @Published var maxPossibleThisMonth: Int = 0
 
+    // MARK: - UI
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var selectedMonth: Date = Date()
-
-    private let db = Firestore.firestore()
-    private var currentBusinessId: String?
 
     var selectedMonthLabel: String {
         let formatter = DateFormatter()
@@ -29,6 +31,13 @@ final class BusinessBookingsViewModel: ObservableObject {
         return formatter.string(from: selectedMonth)
     }
 
+    // MARK: - Private
+    private let db = Firestore.firestore()
+    private var currentBusinessId: String?
+
+    // =================================================
+    // MONTH NAVIGATION
+    // =================================================
     func goToNextMonth() {
         if let next = Calendar.current.date(byAdding: .month, value: 1, to: selectedMonth) {
             selectedMonth = next
@@ -46,8 +55,15 @@ final class BusinessBookingsViewModel: ObservableObject {
     private func reloadIfNeeded() {
         guard let id = currentBusinessId else { return }
         loadBookings(for: id)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.loadCapacityAndProjections(businessId: id)
+        }
     }
 
+    // =================================================
+    // LOAD BOOKINGS
+    // =================================================
     func loadBookings(for businessId: String) {
 
         currentBusinessId = businessId
@@ -56,7 +72,7 @@ final class BusinessBookingsViewModel: ObservableObject {
 
         db.collection("bookings")
             .whereField("businessId", isEqualTo: businessId)
-            .order(by: "startDate", descending: false)
+            .order(by: "startDate")
             .getDocuments { [weak self] snapshot, error in
 
                 guard let self else { return }
@@ -67,91 +83,87 @@ final class BusinessBookingsViewModel: ObservableObject {
                     return
                 }
 
-                let bookings = snapshot?.documents.compactMap {
+                let bookings: [Booking] = snapshot?.documents.compactMap {
                     try? $0.data(as: Booking.self)
                 } ?? []
 
-                let now = Date()
-                let calendar = Calendar.current
+                let cal = Calendar.current
+                let today = Date().localMidnight()
 
-                // Upcoming
                 self.upcoming = bookings
-                    .filter { $0.status == .confirmed && $0.startDate >= now }
+                    .filter {
+                        $0.status == .confirmed &&
+                        (($0.bookingDay ?? $0.startDate.localMidnight()) >= today)
+                    }
                     .sorted { $0.startDate < $1.startDate }
 
-                // Past
                 self.past = bookings
-                    .filter {
-                        $0.status == .completed ||
-                        $0.status == .refunded ||
-                        $0.status == .cancelledByBusiness ||
-                        $0.status == .cancelledByCustomer
-                    }
+                    .filter { $0.status != .confirmed }
                     .sorted { $0.startDate > $1.startDate }
 
-                // Month subset
                 let monthBookings = bookings.filter {
-                    calendar.isDate($0.startDate, equalTo: self.selectedMonth, toGranularity: .month)
+                    let day = $0.bookingDay ?? $0.startDate.localMidnight()
+                    return cal.isDate(day, equalTo: self.selectedMonth, toGranularity: .month)
                 }
 
                 let completed = monthBookings.filter { $0.status == .completed }
                 let confirmed = monthBookings.filter { $0.status == .confirmed }
-                let futureConfirmed = confirmed.filter { $0.startDate >= now }
                 let refunded = monthBookings.filter { $0.status == .refunded }
 
                 self.monthlyCompletedCount = completed.count
+                self.monthlyRevenueEarned = completed.reduce(0) { $0 + $1.price }
+                self.remainingThisMonth = confirmed.reduce(0) { $0 + $1.price }
+                self.monthlyRefunds = refunded.reduce(0) { $0 + $1.price }
 
-                self.monthlyRevenueEarned =
-                    Int(completed.reduce(0.0) { $0 + $1.price * 100 })
-
-                self.remainingThisMonth =
-                    Int(futureConfirmed.reduce(0.0) { $0 + $1.price * 100 })
-
-                self.monthlyRefunds =
-                    Int(refunded.reduce(0.0) { $0 + $1.price * 100 })
-
-                // Capacity + projections
-                self.loadCapacityAndProjections(
-                    businessId: businessId,
-                    monthBookings: monthBookings
-                )
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.loadCapacityAndProjections(businessId: businessId)
+                }
             }
     }
+    func loadStaff(for businessId: String) {
 
-    // MARK: - Capacity (slots) + Projection (avg service price)
+        db.collection("businesses")
+            .document(businessId)
+            .collection("staff")
+            .getDocuments { snapshot, error in
 
-    private func loadCapacityAndProjections(
-        businessId: String,
-        monthBookings: [Booking]
-    ) {
-        let calendar = Calendar.current
-        guard let monthRange = calendar.dateInterval(of: .month, for: selectedMonth) else { return }
+                if let error {
+                    print("❌ Failed to load staff:", error)
+                    return
+                }
 
-        // 1) Fetch average price from services (so projections work even with 0 bookings)
-        fetchAverageServicePrice(businessId: businessId) { [weak self] avgServicePrice in
+                guard let docs = snapshot?.documents else { return }
+
+                self.staff = docs.compactMap {
+                    try? $0.data(as: Staff.self)
+                }
+
+                print("👥 Staff loaded:", self.staff.count)
+            }
+    }
+    // =================================================
+    // CAPACITY + PROJECTION
+    // =================================================
+    private func loadCapacityAndProjections(businessId: String) {
+
+        let cal = Calendar.current
+        guard let range = cal.dateInterval(of: .month, for: selectedMonth) else { return }
+
+        fetchAverageServicePrice(businessId: businessId) { [weak self] avgPrice in
             guard let self else { return }
 
-            // Fallback: if services have no prices, use bookings avg if available
-            let fallbackAvgFromBookings: Double = {
-                guard !monthBookings.isEmpty else { return 0 }
-                return monthBookings.map { $0.price }.reduce(0, +) / Double(monthBookings.count)
-            }()
-
-            let avgPrice = avgServicePrice > 0 ? avgServicePrice : fallbackAvgFromBookings
-
-            // 2) Count totalSlots + bookedSlots from availableSlots
             self.db.collection("businesses")
                 .document(businessId)
                 .collection("staff")
-                .getDocuments { staffSnap, _ in
+                .getDocuments { [weak self] staffSnap, _ in
+
+                    guard let self else { return }
 
                     let staffIds = staffSnap?.documents.map { $0.documentID } ?? []
                     if staffIds.isEmpty {
-                        DispatchQueue.main.async {
-                            self.percentMonthFilled = 0
-                            self.monthlyProjectedIncome = 0
-                            self.maxPossibleThisMonth = 0
-                        }
+                        self.percentMonthFilled = 0
+                        self.monthlyProjectedIncome = 0
+                        self.maxPossibleThisMonth = 0
                         return
                     }
 
@@ -160,16 +172,16 @@ final class BusinessBookingsViewModel: ObservableObject {
                     let group = DispatchGroup()
 
                     for staffId in staffIds {
+
                         group.enter()
 
-                        self.db
-                            .collection("businesses")
+                        self.db.collection("businesses")
                             .document(businessId)
                             .collection("staff")
                             .document(staffId)
                             .collection("availableSlots")
-                            .whereField("startTime", isGreaterThanOrEqualTo: monthRange.start)
-                            .whereField("startTime", isLessThan: monthRange.end)
+                            .whereField("startTime", isGreaterThanOrEqualTo: Timestamp(date: range.start))
+                            .whereField("startTime", isLessThan: Timestamp(date: range.end))
                             .getDocuments { snap, _ in
 
                                 let docs = snap?.documents ?? []
@@ -180,30 +192,34 @@ final class BusinessBookingsViewModel: ObservableObject {
                     }
 
                     group.notify(queue: .main) {
-                        let remainingSlots = max(0, totalSlots - bookedSlots)
 
-                        self.percentMonthFilled =
-                            totalSlots > 0 ? (Double(bookedSlots) / Double(totalSlots)) * 100 : 0
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
 
-                        // If avgPrice still 0, we can’t project money yet (no priced services + no bookings)
-                        guard avgPrice > 0 else {
-                            self.monthlyProjectedIncome = 0
-                            self.maxPossibleThisMonth = 0
-                            return
+                            let remainingSlots = max(0, totalSlots - bookedSlots)
+
+                            self.percentMonthFilled =
+                                totalSlots > 0
+                                ? (Double(bookedSlots) / Double(totalSlots)) * 100
+                                : 0
+
+                            guard avgPrice > 0 else {
+                                self.monthlyProjectedIncome = 0
+                                self.maxPossibleThisMonth = 0
+                                return
+                            }
+
+                            let avgPricePence = Int((avgPrice * 100).rounded())
+                            self.monthlyProjectedIncome = remainingSlots * avgPricePence
+                            self.maxPossibleThisMonth = totalSlots * avgPricePence
                         }
-
-                        // Projected = remaining opportunity
-                        self.monthlyProjectedIncome =
-                            Int(Double(remainingSlots) * avgPrice * 100)
-
-                        // Max Possible = full capacity
-                        self.maxPossibleThisMonth =
-                            Int(Double(totalSlots) * avgPrice * 100)
                     }
                 }
         }
     }
 
+    // =================================================
+    // AVG SERVICE PRICE
+    // =================================================
     private func fetchAverageServicePrice(
         businessId: String,
         completion: @escaping (Double) -> Void
@@ -213,18 +229,11 @@ final class BusinessBookingsViewModel: ObservableObject {
             .collection("services")
             .getDocuments { snapshot, _ in
 
-                // Pull numeric prices only
-                let prices: [Double] = snapshot?.documents.compactMap { doc in
-                    // If your BusinessService decode is reliable, you can do:
-                    // (try? doc.data(as: BusinessService.self))?.price
-                    // But this is safer during migrations:
-                    if let p = doc["price"] as? Double { return p }
-                    if let p = doc["price"] as? Int { return Double(p) }
-                    if let p = doc["price"] as? NSNumber { return p.doubleValue }
-                    return nil
+                let prices: [Double] = snapshot?.documents.compactMap {
+                    ($0["price"] as? NSNumber)?.doubleValue
                 } ?? []
 
-                let avg = prices.isEmpty ? 0 : prices.reduce(0, +) / Double(prices.count)
+                let avg = prices.isEmpty ? 0 : (prices.reduce(0, +) / Double(prices.count))
                 completion(avg)
             }
     }

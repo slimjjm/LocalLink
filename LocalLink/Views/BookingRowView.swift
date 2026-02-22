@@ -16,15 +16,28 @@ struct BookingRowView: View {
                 statusBadge
             }
 
-            Text(booking.staffName)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            HStack {
+                Text(booking.staffName)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+
+                Spacer()
+
+                Text(formattedPrice)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
 
             Text(formattedDate)
                 .font(.footnote)
                 .foregroundColor(.secondary)
         }
         .padding(.vertical, 6)
+    }
+
+    private var formattedPrice: String {
+        let pounds = Double(booking.price) / 100.0
+        return String(format: "£%.2f", pounds)
     }
 
     // MARK: - Status Badge
@@ -41,36 +54,21 @@ struct BookingRowView: View {
 
     private var statusText: String {
         switch booking.status {
-        case .confirmed:
-            return "Confirmed"
-        case .completed:
-            return "Completed"
-        case .refunded:
-            return "Refunded"
-        case .cancelledByBusiness:
-            return "Cancelled"
-        case .cancelledByCustomer:
-            return "Cancelled"
-        case .pendingPayment:
-            return "Pending"
+        case .confirmed: return "Confirmed"
+        case .completed: return "Completed"
+        case .refunded: return "Refunded"
+        case .cancelledByBusiness, .cancelledByCustomer: return "Cancelled"
+        case .pendingPayment: return "Pending"
         }
     }
 
-
     private var statusColor: Color {
         switch booking.status {
-        case .confirmed:
-            return .green
-        case .completed:
-            return .blue
-        case .refunded:
-            return .gray
-        case .cancelledByBusiness:
-            return .red
-        case .cancelledByCustomer:
-            return .red
-        case .pendingPayment:
-            return .orange
+        case .confirmed: return .green
+        case .completed: return .blue
+        case .refunded: return .gray
+        case .cancelledByBusiness, .cancelledByCustomer: return .red
+        case .pendingPayment: return .orange
         }
     }
 

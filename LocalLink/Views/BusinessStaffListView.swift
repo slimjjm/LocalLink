@@ -1,38 +1,50 @@
 import SwiftUI
-import FirebaseFirestore
 
 struct BusinessStaffListView: View {
 
-    // MARK: - Input
     let businessId: String
 
-    // MARK: - State
     @State private var staff: [Staff] = []
     @State private var isLoading = true
     @State private var showAddStaff = false
     @State private var showPaywall = false
 
-    // MARK: - Constants (V1 limits)
     private let maxFreeStaff = 1
-
-    // MARK: - Services
     private let staffRepo = StaffRepository()
 
-    // MARK: - Computed
     private var canAddStaff: Bool {
         staff.count < maxFreeStaff
     }
 
-    // MARK: - Body
     var body: some View {
         Group {
             if isLoading {
                 ProgressView("Loading staff…")
             } else {
                 List {
-                    staffSection
-                    actionSection
-                    usageSection
+                    Section("Staff Members") {
+
+                        if staff.isEmpty {
+                            Text("No staff added yet")
+                                .foregroundColor(.secondary)
+                        }
+
+                        ForEach(staff) { member in
+                            staffRow(member)
+                        }
+                    }
+
+                    Section {
+                        Button {
+                            canAddStaff ? (showAddStaff = true) : (showPaywall = true)
+                        } label: {
+                            Label("Add Staff Member", systemImage: "person.badge.plus")
+                        }
+                    }
+
+                    Section(
+                        footer: Text("Staff used: \(staff.count) of \(maxFreeStaff)")
+                    ) { EmptyView() }
                 }
                 .listStyle(.insetGrouped)
             }
@@ -46,94 +58,65 @@ struct BusinessStaffListView: View {
         .alert("Upgrade required", isPresented: $showPaywall) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Your plan allows 1 staff member. Multiple staff will be available in a future upgrade.")
+            Text("Your plan allows 1 staff member.")
         }
     }
 
-    // MARK: - Sections
+    // MARK: - Row
 
-    private var staffSection: some View {
-        Section(header: Text("Staff Members")) {
+    private func staffRow(_ member: Staff) -> some View {
 
-            if staff.isEmpty {
-                Text("No staff added yet")
-                    .foregroundColor(.secondary)
-            }
-
-            ForEach(staff.indices, id: \.self) { index in
-                let member = staff[index]
-
-                VStack(alignment: .leading, spacing: 10) {
-
-                    // Weekly availability editor
-                    NavigationLink {
-                        WeeklyAvailabilityEditView(
-                            businessId: businessId,
-                            staff: member
-                        )
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(member.name)
-                                .font(.headline)
-
-                            if !member.skills.isEmpty {
-                                Text(member.skills.joined(separator: ", "))
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            } else {
-                                Text("Edit weekly availability")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-
-                    // Active toggle
-                    Toggle(
-                        "Active",
-                        isOn: Binding(
-                            get: { staff[index].isActive },
-                            set: { newValue in
-                                staff[index].isActive = newValue
-                                updateStaffActive(
-                                    staffId: member.id,
-                                    isActive: newValue
-                                )
-                            }
-                        )
-                    )
-
-                    if !member.isActive {
-                        Text("Inactive")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                    }
-                }
-                .padding(.vertical, 6)
-            }
-        }
-    }
-
-    private var actionSection: some View {
         Section {
-            Button {
-                if canAddStaff {
-                    showAddStaff = true
-                } else {
-                    showPaywall = true
-                }
-            } label: {
-                Label("Add Staff Member", systemImage: "person.badge.plus")
+
+            HStack {
+                Text(member.name)
+                    .font(.headline)
+                Spacer()
             }
+
+            NavigationLink {
+                EditStaffSkillsView(
+                    businessId: businessId,
+                    staffId: member.id ?? ""
+                )
+            } label: {
+                rowLabel("Edit Skills")
+            }
+
+            NavigationLink {
+                WeeklyAvailabilityEditView(
+                    businessId: businessId,
+                    staffId: member.id ?? ""
+                )
+            } label: {
+                rowLabel("Edit Weekly Availability")
+            }
+
+            Toggle(
+                "Active",
+                isOn: Binding(
+                    get: { member.isActive },
+                    set: { newValue in
+                        updateStaffActive(
+                            staffId: member.id,
+                            isActive: newValue
+                        )
+                    }
+                )
+            )
         }
     }
 
-    private var usageSection: some View {
-        Section(
-            footer: Text("Staff used: \(staff.count) of \(maxFreeStaff)")
-        ) {
-            EmptyView()
+    // MARK: - UI
+
+    private func rowLabel(_ text: String) -> some View {
+        HStack {
+            Text(text)
+            Spacer()
+            Image(systemName: "chevron.right")
+                .foregroundColor(.secondary)
         }
+        .contentShape(Rectangle())
     }
 
     // MARK: - Data
@@ -160,4 +143,3 @@ struct BusinessStaffListView: View {
         }
     }
 }
-

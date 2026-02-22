@@ -1,18 +1,28 @@
 import Foundation
 import FirebaseFirestore
+import FirebaseFirestoreSwift
 
 final class AvailabilityGenerator {
 
     private let db = Firestore.firestore()
     private let calendar = Calendar.current
 
-    // MARK: - Public: Regenerate EVERYTHING clean
+    private func log(_ message: String) {
+        print("🟠 AvailabilityGenerator:", message)
+    }
+
+    // =================================================
+    // MAIN ENTRY
+    // =================================================
     func regenerateNextDays(
         businessId: String,
         staffId: String,
-        numberOfDays: Int,
-        completion: @escaping (Result<Void, Error>) -> Void
-    ) {
+        numberOfDays: Int
+    ) async throws {
+
+        guard numberOfDays > 0 else { return }
+
+        log("🚀 START regenerateNextDays")
 
         let staffRef = db
             .collection("businesses")
@@ -20,139 +30,140 @@ final class AvailabilityGenerator {
             .collection("staff")
             .document(staffId)
 
-        let batch = db.batch()
+        // DELETE AVAILABILITY
+        let availabilitySnap = try await staffRef
+            .collection("availability")
+            .getDocuments()
 
-        // 🔥 DELETE FUTURE AVAILABILITY
-        staffRef.collection("availability")
-            .getDocuments { [weak self] snapshot, error in
+        try await deleteAsync(docs: availabilitySnap.documents)
 
-                guard let self else { return }
+        // DELETE SLOTS
+        let slotSnap = try await staffRef
+            .collection("availableSlots")
+            .getDocuments()
 
-                if let error {
-                    completion(.failure(error))
-                    return
-                }
+        try await deleteAsync(docs: slotSnap.documents)
 
-                snapshot?.documents.forEach {
-                    batch.deleteDocument($0.reference)
-                }
+        // FETCH WEEKLY TEMPLATE ONCE
+        let weekSnap = try await staffRef
+            .collection("weeklyAvailability")
+            .getDocuments()
 
-                // 🔥 DELETE OLD SLOTS
-                staffRef.collection("availableSlots")
-                    .getDocuments { slotsSnap, err in
+        var weekly: [String: [String: Any]] = [:]
+        weekSnap.documents.forEach {
+            weekly[$0.documentID] = $0.data()
+        }
 
-                        if let err {
-                            completion(.failure(err))
-                            return
-                        }
+        // FETCH BLOCKED TIMES ONCE
+        let blockedSnapshot = try await db
+            .collection("businesses")
+            .document(businessId)
+            .collection("blockedTimes")
+            .getDocuments()
 
-                        slotsSnap?.documents.forEach {
-                            batch.deleteDocument($0.reference)
-                        }
+        let blockedTimes = blockedSnapshot.documents.compactMap {
+            try? $0.data(as: BlockedTime.self)
+        }
 
-                        batch.commit { commitErr in
-                            if let commitErr {
-                                completion(.failure(commitErr))
-                                return
-                            }
+        let today = calendar.startOfDay(for: Date())
+        guard let finalTargetDate = calendar.date(byAdding: .day, value: numberOfDays, to: today) else {
+            return
+        }
 
-                            // 🔁 REBUILD EVERYTHING
-                            self.generateNextDays(
-                                businessId: businessId,
-                                staffId: staffId,
-                                numberOfDays: numberOfDays,
-                                completion: completion
-                            )
-                        }
-                    }
+        // BATCH AVAILABILITY WRITES
+        var batch = db.batch()
+        var writeCount = 0
+
+        for offset in 0..<numberOfDays {
+
+            guard let day = calendar.date(byAdding: .day, value: offset, to: today) else { continue }
+
+            let weekday = day.weekdayKey
+            guard let config = weekly[weekday] else { continue }
+
+            let closed = (config["closed"] as? Bool) ?? false
+            if closed { continue }
+
+            guard
+                let open = config["open"] as? String,
+                let close = config["close"] as? String,
+                let startDate = makeDate(on: day, timeHHmm: open),
+                let endDate = makeDate(on: day, timeHHmm: close),
+                endDate > startDate
+            else { continue }
+
+            let ref = staffRef
+                .collection("availability")
+                .document(day.dateId())
+
+            batch.setData([
+                "date": Timestamp(date: day),
+                "startTime": Timestamp(date: startDate),
+                "endTime": Timestamp(date: endDate),
+                "generatedAt": FieldValue.serverTimestamp()
+            ], forDocument: ref, merge: true)
+
+            writeCount += 1
+
+            if writeCount == 450 {
+                try await batch.commit()
+                batch = db.batch()
+                writeCount = 0
             }
+
+            // SLOT GEN (already batched)
+            try await SlotGenerator().generateSlotsForDay(
+                businessId: businessId,
+                staffId: staffId,
+                date: day,
+                startTime: startDate,
+                endTime: endDate,
+                blockedTimes: blockedTimes
+            )
+        }
+
+        if writeCount > 0 {
+            try await batch.commit()
+        }
+
+        // WRITE META ONCE
+        try await staffRef
+            .collection("meta")
+            .document("availability")
+            .setData([
+                "generatedUntil": Timestamp(date: finalTargetDate),
+                "updatedAt": FieldValue.serverTimestamp()
+            ], merge: true)
+
+        log("🏁 Regen COMPLETE")
     }
 
-    // MARK: - Generate from weekly template
-    func generateNextDays(
-        businessId: String,
-        staffId: String,
-        numberOfDays: Int,
-        completion: @escaping (Result<Void, Error>) -> Void
-    ) {
+    // =================================================
+    // DELETE HELPER
+    // =================================================
+    private func deleteAsync(docs: [QueryDocumentSnapshot]) async throws {
 
-        let staffRef = db
-            .collection("businesses")
-            .document(businessId)
-            .collection("staff")
-            .document(staffId)
+        guard !docs.isEmpty else { return }
 
-        staffRef.getDocument { [weak self] snapshot, error in
-            guard let self else { return }
+        let chunkSize = 450
+        var index = 0
 
-            if let error {
-                completion(.failure(error))
-                return
-            }
+        while index < docs.count {
 
-            guard let data = snapshot?.data(),
-                  let weekly = data["weeklyAvailability"] as? [String: Any]
-            else {
-                completion(.success(()))
-                return
-            }
+            let end = min(index + chunkSize, docs.count)
+            let chunk = Array(docs[index..<end])
 
-            Task {
-                do {
-                    let today = self.calendar.startOfDay(for: Date())
+            let batch = db.batch()
+            chunk.forEach { batch.deleteDocument($0.reference) }
 
-                    for offset in 0..<numberOfDays {
-
-                        guard let day = self.calendar.date(byAdding: .day, value: offset, to: today) else { continue }
-
-                        let weekday = day.weekdayKey
-
-                        guard
-                            let config = weekly[weekday] as? [String: Any],
-                            let closed = config["closed"] as? Bool,
-                            closed == false,
-                            let open = config["open"] as? String,
-                            let close = config["close"] as? String
-                        else { continue }
-
-                        guard
-                            let startDate = self.makeDate(on: day, timeHHmm: open),
-                            let endDate = self.makeDate(on: day, timeHHmm: close)
-                        else { continue }
-
-                        let docId = day.dateId()
-
-                        // ✅ Save working window
-                        try await staffRef
-                            .collection("availability")
-                            .document(docId)
-                            .setData([
-                                "date": Timestamp(date: day),
-                                "startTime": Timestamp(date: startDate),
-                                "endTime": Timestamp(date: endDate),
-                                "generatedAt": FieldValue.serverTimestamp()
-                            ])
-
-                        // 🔥 Generate BOOKABLE SLOTS
-                        await SlotGenerator().generateSlotsForDay(
-                            businessId: businessId,
-                            staffId: staffId,
-                            date: day,
-                            startTime: startDate,
-                            endTime: endDate
-                        )
-                    }
-
-                    completion(.success(()))
-
-                } catch {
-                    completion(.failure(error))
-                }
-            }
+            try await batch.commit()
+            index = end
         }
     }
 
-    // MARK: - Helpers
+    // =================================================
+    // TIME PARSE
+    // =================================================
     private func makeDate(on day: Date, timeHHmm: String) -> Date? {
 
         let parts = timeHHmm.split(separator: ":")

@@ -5,18 +5,14 @@ import UIKit
 
 struct BookingDetailView: View {
 
-    // MARK: - Inputs
     let bookingId: String
 
-    // MARK: - State
     @State private var booking: Booking?
     @State private var isLoading = true
     @State private var errorMessage: String?
 
-    // MARK: - Services
     private let db = Firestore.firestore()
 
-    // MARK: - View
     var body: some View {
         VStack(spacing: 20) {
 
@@ -49,8 +45,6 @@ struct BookingDetailView: View {
         }
     }
 
-    // MARK: - UI
-
     private func details(for booking: Booking) -> some View {
         VStack(alignment: .leading, spacing: 18) {
 
@@ -61,45 +55,33 @@ struct BookingDetailView: View {
 
             infoRow("Staff", booking.staffName)
 
-            if !booking.location.isEmpty {
+            if !booking.customerAddress.isEmpty {
                 Button {
-                    openInMaps(booking.location)
+                    openInMaps(booking.customerAddress)
                 } label: {
-                    infoRow("Address", booking.location)
+                    infoRow("Address", booking.customerAddress)
                 }
             }
 
             infoRow(
                 "Date",
-                booking.startDate.formatted(
-                    date: .long,
-                    time: .omitted
-                )
+                booking.startDate.formatted(date: .long, time: .omitted)
             )
 
             infoRow(
                 "Time",
-                booking.startDate.formatted(
-                    date: .omitted,
-                    time: .shortened
-                )
+                booking.startDate.formatted(date: .omitted, time: .shortened)
             )
 
             infoRow("Duration", "\(booking.serviceDurationMinutes) mins")
-
             infoRow("Price", String(format: "£%.2f", booking.price))
-
-            infoRow(
-                "Status",
-                booking.status.rawValue.capitalized
-            )
+            infoRow("Status", booking.status.rawValue.capitalized)
 
             infoRow(
                 "Booked",
-                booking.createdAt.formatted(
-                    date: .abbreviated,
-                    time: .shortened
-                )
+                booking.createdAt?
+                    .formatted(date: .abbreviated, time: .shortened)
+                    ?? "Unknown"
             )
         }
     }
@@ -116,8 +98,6 @@ struct BookingDetailView: View {
         }
     }
 
-    // MARK: - Maps
-
     private func openInMaps(_ address: String) {
         let encoded = address.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
 
@@ -125,14 +105,12 @@ struct BookingDetailView: View {
         let wazeURL = URL(string: "waze://?q=\(encoded)&navigate=yes")
         let appleURL = URL(string: "http://maps.apple.com/?daddr=\(encoded)")
 
-        if let googleURL,
-           UIApplication.shared.canOpenURL(googleURL) {
+        if let googleURL, UIApplication.shared.canOpenURL(googleURL) {
             UIApplication.shared.open(googleURL)
             return
         }
 
-        if let wazeURL,
-           UIApplication.shared.canOpenURL(wazeURL) {
+        if let wazeURL, UIApplication.shared.canOpenURL(wazeURL) {
             UIApplication.shared.open(wazeURL)
             return
         }
@@ -141,8 +119,6 @@ struct BookingDetailView: View {
             UIApplication.shared.open(appleURL)
         }
     }
-
-    // MARK: - Data
 
     private func loadBooking() {
         isLoading = true
@@ -159,14 +135,8 @@ struct BookingDetailView: View {
                         return
                     }
 
-                    guard let snapshot else {
-                        self.errorMessage = "Booking not found."
-                        return
-                    }
-
-                    self.booking = try? snapshot.data(as: Booking.self)
+                    self.booking = try? snapshot?.data(as: Booking.self)
                 }
             }
     }
 }
-

@@ -85,7 +85,7 @@ struct TodayBookingsView: View {
             )
 
             // ⭐ Paid badge
-            if booking.isPaid {
+            if booking.isPaid == true {
                 Text("PAID")
                     .font(.caption.bold())
                     .padding(.horizontal, 10)

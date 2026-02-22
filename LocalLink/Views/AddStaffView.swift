@@ -86,8 +86,10 @@ struct AddStaffView: View {
         let staff = Staff(
             id: nil,
             name: cleanedName,
+            serviceIds: [],
+            skills: skills,
             isActive: true,
-            skills: skills
+            createdAt: Date()
         )
 
 

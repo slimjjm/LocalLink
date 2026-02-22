@@ -98,7 +98,18 @@ struct RootView: View {
 
         case .startSelection:
             RoleSelectionView()
-        }
+        
+        case .editStaffSkills(let businessId, let staffId, _):
+            EditStaffSkillsView(
+                businessId: businessId,
+                staffId: staffId
+            )
+
+        case .editWeeklyAvailability(let businessId, let staffId, _):
+            WeeklyAvailabilityEditView(
+                businessId: businessId,
+                staffId: staffId
+            )}
     }
 
     // MARK: - Auth Listener

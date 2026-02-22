@@ -3,15 +3,15 @@ import SwiftUI
 struct BusinessEarningsView: View {
     
     let businessId: String
-    @StateObject private var viewModel = BusinessBookingsViewModel()
+    @ObservedObject var viewModel: BusinessBookingsViewModel
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             
             HStack {
-                Button(action: {
+                Button {
                     viewModel.goToPreviousMonth()
-                }) {
+                } label: {
                     Image(systemName: "chevron.left")
                 }
                 
@@ -22,9 +22,9 @@ struct BusinessEarningsView: View {
                 
                 Spacer()
                 
-                Button(action: {
+                Button {
                     viewModel.goToNextMonth()
-                }) {
+                } label: {
                     Image(systemName: "chevron.right")
                 }
             }
@@ -37,6 +37,7 @@ struct BusinessEarningsView: View {
                     Text("Earned")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                    
                     Text("£\(Double(viewModel.monthlyRevenueEarned)/100, specifier: "%.2f")")
                         .font(.title2.bold())
                 }
@@ -47,17 +48,11 @@ struct BusinessEarningsView: View {
                     Text("Projected")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                    
                     Text("£\(Double(viewModel.monthlyProjectedIncome)/100, specifier: "%.2f")")
                         .font(.title2.bold())
-                }
-                
-                Spacer()
-                
-                VStack(alignment: .leading) {
-                    
                 }
             }
         }
     }
 }
-
