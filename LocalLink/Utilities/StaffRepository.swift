@@ -1,12 +1,18 @@
+
+
+import Foundation
 import FirebaseFirestore
 import FirebaseFirestoreSwift
+import FirebaseFunctions
 
 final class StaffRepository {
 
     private let db = Firestore.firestore()
+    private let functions = Functions.functions(region: "us-central1")
 
-    // MARK: - Fetch ALL staff (ordered, deterministic)
-
+    // =================================================
+    // FETCH ALL STAFF (ordered by seatRank)
+    // =================================================
     func fetchAllStaff(
         businessId: String,
         completion: @escaping ([Staff]) -> Void
@@ -14,7 +20,7 @@ final class StaffRepository {
         db.collection("businesses")
             .document(businessId)
             .collection("staff")
-            .order(by: "name")
+            .order(by: "seatRank")
             .getDocuments { snapshot, error in
 
                 if let error {
@@ -23,58 +29,95 @@ final class StaffRepository {
                     return
                 }
 
-                let staff =
-                    snapshot?.documents.compactMap {
-                        try? $0.data(as: Staff.self)
+                let staff: [Staff] =
+                    snapshot?.documents.compactMap { doc in
+                        try? doc.data(as: Staff.self)
                     } ?? []
 
                 completion(staff)
             }
     }
 
-    // MARK: - Create staff (SAFE)
-
+    // =================================================
+    // SERVER-ENFORCED CREATE (Cloud Function)
+    // =================================================
     func createStaff(
         businessId: String,
-        staff: Staff,
-        completion: @escaping (Result<Void, Error>) -> Void
-    ) {
-        do {
-            try db.collection("businesses")
-                .document(businessId)
-                .collection("staff")
-                .addDocument(from: staff) { error in
-                    if let error {
-                        completion(.failure(error))
-                    } else {
-                        completion(.success(()))
-                    }
-                }
-        } catch {
-            completion(.failure(error))
+        name: String
+    ) async throws -> String {
+
+        let result = try await functions
+            .httpsCallable("createStaffMember")
+            .call([
+                "businessId": businessId,
+                "name": name
+            ])
+
+        guard
+            let data = result.data as? [String: Any],
+            let staffId = data["staffId"] as? String
+        else {
+            throw NSError(
+                domain: "StaffRepository",
+                code: 0,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid server response (missing staffId)."]
+            )
         }
+
+        return staffId
     }
 
-    // MARK: - Update active flag ONLY
-
-    func updateStaffActive(
+    // =================================================
+    // UPDATE SEAT RANKS (persist drag/drop ordering)
+    // =================================================
+    func updateSeatRanks(
         businessId: String,
-        staffId: String,
-        isActive: Bool,
-        completion: @escaping (Result<Void, Error>) -> Void
-    ) {
-        db.collection("businesses")
-            .document(businessId)
-            .collection("staff")
-            .document(staffId)
-            .updateData([
-                "isActive": isActive
-            ]) { error in
-                if let error {
-                    completion(.failure(error))
+        orderedStaff: [Staff]
+    ) async throws {
+
+        let batch = db.batch()
+
+        for (index, member) in orderedStaff.enumerated() {
+            guard let staffId = member.id, !staffId.isEmpty else { continue }
+
+            let ref = db.collection("businesses")
+                .document(businessId)
+                .collection("staff")
+                .document(staffId)
+
+            batch.updateData(["seatRank": index], forDocument: ref)
+        }
+
+        try await batch.commitAsync()
+    }
+
+    // =================================================
+    // OPTIONAL: Re-apply enforcement after reorder
+    // =================================================
+    func reconcileSeatEnforcementNow(businessId: String) async {
+        do {
+            _ = try await functions
+                .httpsCallable("reconcileSeatEnforcementNow")
+                .call(["businessId": businessId])
+        } catch {
+            print("⚠️ reconcileSeatEnforcementNow failed:", error.localizedDescription)
+        }
+    }
+}
+
+// =====================================================
+// MARK: - WriteBatch async helper (works on all SDKs)
+// =====================================================
+private extension WriteBatch {
+    func commitAsync() async throws {
+        try await withCheckedThrowingContinuation { cont in
+            self.commit { error in
+                if let error = error {
+                    cont.resume(throwing: error)
                 } else {
-                    completion(.success(()))
+                    cont.resume(returning: ())
                 }
             }
+        }
     }
 }
