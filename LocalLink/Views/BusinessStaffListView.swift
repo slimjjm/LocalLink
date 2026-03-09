@@ -1,76 +1,186 @@
 import SwiftUI
+import FirebaseFirestore
 
 struct BusinessStaffListView: View {
 
     let businessId: String
 
+    @StateObject private var gateVM = StaffUnlockGateViewModel()
+
     @State private var staff: [Staff] = []
-    @State private var isLoading = true
+    @State private var isLoadingStaff = true
+
     @State private var showAddStaff = false
     @State private var showPaywall = false
+    @State private var showSubscription = false
 
-    private let maxFreeStaff = 1
+    @State private var isSavingOrder = false
+
     private let staffRepo = StaffRepository()
 
-    private var canAddStaff: Bool {
-        staff.count < maxFreeStaff
+    // MARK: - Derived
+
+    private var allowedSeats: Int { max(1, gateVM.allowedStaff) }
+
+    private var sortedStaff: [Staff] {
+        staff.sorted { ($0.seatRank ?? 9999) < ($1.seatRank ?? 9999) }
+    }
+
+    private var entitledStaffIds: Set<String> {
+        Set(sortedStaff.prefix(allowedSeats).compactMap { $0.id })
     }
 
     var body: some View {
         Group {
-            if isLoading {
-                ProgressView("Loading staff…")
+            if isLoadingStaff || gateVM.isLoading {
+                HStack {
+                    Spacer()
+                    ProgressView("Loading staff…")
+                    Spacer()
+                }
             } else {
                 List {
+
+                    // MARK: Capacity Tile
+                    Section {
+                        StaffUnlockTile(
+                            businessId: businessId,
+                            staffCount: gateVM.staffCount,
+                            allowed: gateVM.allowedStaff,
+                            canAdd: gateVM.canAddStaff,
+                            onUnlockTapped: { showPaywall = true },
+                            onManageTapped: { showSubscription = true }
+                        )
+                    }
+
+                    // MARK: Staff Members
                     Section("Staff Members") {
 
                         if staff.isEmpty {
-                            Text("No staff added yet")
-                                .foregroundColor(.secondary)
+                            ContentUnavailableView(
+                                "No staff yet",
+                                systemImage: "person.2",
+                                description: Text("Add staff members to manage bookings.")
+                            )
                         }
 
-                        ForEach(staff) { member in
+                        ForEach(sortedStaff) { member in
                             staffRow(member)
                         }
+                        .onMove(perform: isSavingOrder ? nil : moveStaff)
                     }
 
+                    // MARK: Add Staff
                     Section {
                         Button {
-                            canAddStaff ? (showAddStaff = true) : (showPaywall = true)
+                            if gateVM.canAddStaff {
+                                showAddStaff = true
+                            } else {
+                                showPaywall = true
+                            }
                         } label: {
                             Label("Add Staff Member", systemImage: "person.badge.plus")
+                                .foregroundColor(AppColors.primary)
                         }
+                        .disabled(isSavingOrder)
                     }
 
                     Section(
-                        footer: Text("Staff used: \(staff.count) of \(maxFreeStaff)")
+                        footer: Text("Active seats used: \(gateVM.staffCount) of \(gateVM.allowedStaff)")
                     ) { EmptyView() }
+
+                    if isSavingOrder {
+                        Section {
+                            HStack(spacing: 10) {
+                                ProgressView()
+                                Text("Saving priority order…")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                            }
+                        }
+                    }
+
+                    if let err = gateVM.errorMessage {
+                        Section {
+                            Text(err)
+                                .foregroundColor(AppColors.error)
+                        }
+                    }
                 }
                 .listStyle(.insetGrouped)
+                .toolbar {
+                    EditButton()
+                        .disabled(isSavingOrder)
+                }
             }
         }
         .navigationTitle("Staff")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { loadStaff() }
-        .sheet(isPresented: $showAddStaff) {
-            AddStaffView(businessId: businessId)
+        .onAppear {
+            gateVM.start(businessId: businessId)
+            loadStaff()
         }
-        .alert("Upgrade required", isPresented: $showPaywall) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Your plan allows 1 staff member.")
+        .onDisappear {
+            gateVM.stop()
+        }
+
+        // MARK: - Sheets
+
+        .sheet(isPresented: $showAddStaff) {
+            AddStaffView(
+                businessId: businessId,
+                onUnlockTapped: { showPaywall = true }
+            )
+            .onDisappear { loadStaff() }
+        }
+
+        .sheet(isPresented: $showPaywall) {
+            StaffUnlockView(
+                businessId: businessId,
+                onSuccess: { loadStaff() }
+            )
+        }
+
+        .sheet(isPresented: $showSubscription) {
+            NavigationStack {
+                BusinessSubscriptionView(businessId: businessId)
+            }
         }
     }
 
-    // MARK: - Row
+    // MARK: - Staff Row
 
     private func staffRow(_ member: Staff) -> some View {
 
-        Section {
+        let id = member.id ?? ""
+        let lockedByEntitlement = !entitledStaffIds.contains(id)
 
+        return Section {
             HStack {
-                Text(member.name)
-                    .font(.headline)
+                VStack(alignment: .leading, spacing: 4) {
+
+                    HStack(spacing: 8) {
+                        Text(member.name)
+                            .font(.headline.weight(.semibold))
+                            .foregroundColor(AppColors.charcoal)
+
+                        if lockedByEntitlement {
+                            Text("LOCKED")
+                                .font(.caption2)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(AppColors.primary.opacity(0.15))
+                                .foregroundColor(AppColors.primary)
+                                .clipShape(Capsule())
+                        }
+                    }
+
+                    Text("Priority \(member.seatRank ?? 0)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
                 Spacer()
             }
 
@@ -82,6 +192,8 @@ struct BusinessStaffListView: View {
             } label: {
                 rowLabel("Edit Skills")
             }
+            .disabled(lockedByEntitlement)
+            .opacity(lockedByEntitlement ? 0.55 : 1)
 
             NavigationLink {
                 WeeklyAvailabilityEditView(
@@ -91,23 +203,57 @@ struct BusinessStaffListView: View {
             } label: {
                 rowLabel("Edit Weekly Availability")
             }
+            .disabled(lockedByEntitlement)
+            .opacity(lockedByEntitlement ? 0.55 : 1)
 
-            Toggle(
-                "Active",
-                isOn: Binding(
-                    get: { member.isActive },
-                    set: { newValue in
-                        updateStaffActive(
-                            staffId: member.id,
-                            isActive: newValue
-                        )
-                    }
-                )
-            )
+            if lockedByEntitlement {
+                Text("This staff member is locked because your plan allows \(allowedSeats) active seat(s).")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
     }
 
-    // MARK: - UI
+    // MARK: - Reorder
+
+    private func moveStaff(from source: IndexSet, to destination: Int) {
+        var reordered = sortedStaff
+        reordered.move(fromOffsets: source, toOffset: destination)
+
+        // Re-assign ranks locally so UI reflects instantly
+        let withRanks = reordered.enumerated().map { idx, s -> Staff in
+            var copy = s
+            copy.seatRank = idx
+            return copy
+        }
+
+        staff = withRanks
+        persistSeatRanks()
+    }
+
+    private func persistSeatRanks() {
+        isSavingOrder = true
+
+        Task {
+            do {
+                try await staffRepo.updateSeatRanks(
+                    businessId: businessId,
+                    orderedStaff: staff
+                )
+
+                // Optional: if you want server enforcement to re-check after reorder
+                // await staffRepo.reconcileSeatEnforcementNow(businessId: businessId)
+
+            } catch {
+                print("❌ updateSeatRanks failed:", error.localizedDescription)
+            }
+
+            isSavingOrder = false
+            loadStaff()
+        }
+    }
+
+    // MARK: - Helpers
 
     private func rowLabel(_ text: String) -> some View {
         HStack {
@@ -119,27 +265,14 @@ struct BusinessStaffListView: View {
         .contentShape(Rectangle())
     }
 
-    // MARK: - Data
-
     private func loadStaff() {
-        isLoading = true
+        isLoadingStaff = true
+
         staffRepo.fetchAllStaff(businessId: businessId) { result in
             DispatchQueue.main.async {
                 self.staff = result
-                self.isLoading = false
+                self.isLoadingStaff = false
             }
-        }
-    }
-
-    private func updateStaffActive(staffId: String?, isActive: Bool) {
-        guard let staffId else { return }
-
-        staffRepo.updateStaffActive(
-            businessId: businessId,
-            staffId: staffId,
-            isActive: isActive
-        ) { _ in
-            loadStaff()
         }
     }
 }

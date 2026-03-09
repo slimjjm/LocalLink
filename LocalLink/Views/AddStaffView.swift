@@ -1,115 +1,137 @@
 import SwiftUI
-import FirebaseFirestoreSwift
+import FirebaseFirestore
 
 struct AddStaffView: View {
 
-    // MARK: - Inputs
     let businessId: String
-    let onStaffAdded: () -> Void = {}
+    let onUnlockTapped: () -> Void
 
-    // MARK: - Environment
     @Environment(\.dismiss) private var dismiss
 
-    // MARK: - State
     @State private var name = ""
-    @State private var skillsText = ""
-    @State private var isSaving = false
+    @State private var isLoading = false
     @State private var errorMessage: String?
-    @State private var showUpgradePrompt = false
+    @State private var restrictionMode = false
 
-    // MARK: - Services
-    private let staffRepo = StaffRepository()
-    private let staffLimitService = StaffLimitService()
+    @State private var entitlementListener: ListenerRegistration?
 
-    // MARK: - View
+    private let db = Firestore.firestore()
+    private let repo = StaffRepository()
+
     var body: some View {
-        Form {
+
+        VStack(spacing: 24) {
+
+            if restrictionMode {
+                restrictionBanner
+            }
+
+            VStack(spacing: 12) {
+
+                Text("Staff Member")
+                    .font(.headline)
+                    .foregroundColor(AppColors.charcoal)
+
+                TextField("Staff name", text: $name)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            Button {
+                Task { await createStaff() }
+            } label: {
+
+                if isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Text("Add Staff Member")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .primaryButton()
+            .disabled(isLoading || restrictionMode || name.trimmingCharacters(in: .whitespaces).isEmpty)
+
+            Button {
+                onUnlockTapped()
+            } label: {
+                Text("Unlock more staff seats")
+                    .font(.footnote)
+            }
 
             if let errorMessage {
                 Text(errorMessage)
-                    .foregroundColor(.red)
+                    .foregroundColor(AppColors.error)
+                    .font(.footnote)
             }
 
-            Section("Staff Details") {
-                TextField("Name", text: $name)
-
-                TextField("Skills (comma separated)", text: $skillsText)
-                    .textInputAutocapitalization(.sentences)
-            }
-
-            Section {
-                Button {
-                    attemptAddStaff()
-                } label: {
-                    Text(isSaving ? "Saving…" : "Save Staff")
-                }
-                .disabled(isSaving || name.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
+            Spacer()
         }
+        .padding()
+        .background(AppColors.background)
         .navigationTitle("Add Staff")
-        .navigationBarTitleDisplayMode(.inline)
-        .alert("Staff limit reached", isPresented: $showUpgradePrompt) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("You’ve reached your current staff limit. Unlock an additional staff slot to add more team members.")
+        .onAppear { startListening() }
+        .onDisappear { stopListening() }
+    }
+
+    private var restrictionBanner: some View {
+
+        Text("Account restricted due to unresolved billing. Staff expansion is disabled until payment is resolved.")
+            .font(.footnote)
+            .foregroundColor(AppColors.error)
+            .multilineTextAlignment(.center)
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.red.opacity(0.1))
+            )
+    }
+
+    // MARK: Firestore Listener
+
+    private func startListening() {
+
+        let entRef = db.collection("businesses")
+            .document(businessId)
+            .collection("entitlements")
+            .document("default")
+
+        entitlementListener?.remove()
+
+        entitlementListener = entRef.addSnapshotListener { snap, _ in
+            DispatchQueue.main.async {
+                if let data = snap?.data() {
+                    restrictionMode = data["restrictionMode"] as? Bool ?? false
+                }
+            }
         }
     }
 
-    // MARK: - Flow
-    private func attemptAddStaff() {
-        isSaving = true
+    private func stopListening() {
+        entitlementListener?.remove()
+        entitlementListener = nil
+    }
+
+    // MARK: Create Staff
+
+    private func createStaff() async {
+
         errorMessage = nil
+        isLoading = true
 
-        staffLimitService.fetchLimits(businessId: businessId) { used, max in
-            DispatchQueue.main.async {
-                if used < max {
-                    saveStaff()
-                } else {
-                    isSaving = false
-                    showUpgradePrompt = true
-                }
-            }
+        do {
+
+            _ = try await repo.createStaff(
+                businessId: businessId,
+                name: name
+            )
+
+            dismiss()
+
+        } catch {
+
+            errorMessage = error.localizedDescription
         }
-    }
 
-    // MARK: - Save
-    private func saveStaff() {
-        let cleanedName =
-            name.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let skills =
-            skillsText
-                .split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-
-        let staff = Staff(
-            id: nil,
-            name: cleanedName,
-            serviceIds: [],
-            skills: skills,
-            isActive: true,
-            createdAt: Date()
-        )
-
-
-        staffRepo.createStaff(
-            businessId: businessId,
-            staff: staff
-        ) { result in
-            DispatchQueue.main.async {
-                isSaving = false
-
-                switch result {
-                case .success:
-                    onStaffAdded()
-                    dismiss()
-
-                case .failure(let error):
-                    errorMessage = error.localizedDescription
-                }
-            }
-        }
+        isLoading = false
     }
 }
-

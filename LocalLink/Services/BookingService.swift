@@ -1,16 +1,17 @@
 import Foundation
 import FirebaseFirestore
 import FirebaseFunctions
+import FirebaseAuth
 
 final class BookingService {
 
     private let db = Firestore.firestore()
-    private let bookingRepo = BookingRepository()
     private let functions = Functions.functions(region: "us-central1")
 
     // =================================================
-    // CONFIRM BOOKING
+    // CONFIRM BOOKING (transaction-safe)
     // =================================================
+
     func confirmBooking(
         businessId: String,
         customerId: String,
@@ -22,165 +23,136 @@ final class BookingService {
         startTime: Date,
         endTime: Date,
         paymentIntentId: String?,
+        source: String = "app", // 👈 NEW
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
 
-        let pi = (paymentIntentId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !pi.isEmpty else {
-            completion(.failure(NSError(
-                domain: "BookingService",
-                code: 402,
-                userInfo: [NSLocalizedDescriptionKey: "Payment required before booking."]
-            )))
-            return
-        }
-
         guard let serviceId = service.id,
-              let staffId = staff.id else {
-            completion(.failure(NSError(
-                domain: "BookingService",
-                code: 0,
-                userInfo: [NSLocalizedDescriptionKey: "Missing service or staff ID."]
-            )))
-            return
-        }
-
-        guard endTime > startTime else {
-            completion(.failure(NSError(
-                domain: "BookingService",
-                code: 0,
-                userInfo: [NSLocalizedDescriptionKey: "Invalid time range."]
-            )))
-            return
-        }
+              let staffId = staff.id else { return }
 
         let bookingDay = date.localMidnight()
+        let pricePence = Int((service.price * 100).rounded())
 
-        // -------------------------------------------------
-        // COLLISION CHECK (quick guard: exact start already booked)
-        // NOTE: This is a lightweight guard. Slot-level booking is handled below.
-        // -------------------------------------------------
-        db.collection("bookings")
-            .whereField("businessId", isEqualTo: businessId)
-            .whereField("staffId", isEqualTo: staffId)
-            .whereField("startDate", isEqualTo: Timestamp(date: startTime))
-            .whereField("status", isEqualTo: BookingStatus.confirmed.rawValue)
-            .limit(to: 1)
-            .getDocuments { [weak self] snapshot, error in
+        let slotCollection = db
+            .collection("businesses")
+            .document(businessId)
+            .collection("staff")
+            .document(staffId)
+            .collection("availableSlots")
 
-                guard let self else { return }
+        let bookingRef = db.collection("bookings").document()
+        let bookingId = bookingRef.documentID
 
-                if let error {
-                    completion(.failure(error))
-                    return
+        let interval: TimeInterval = 60 * 30
+        var slotTimes: [Date] = []
+        var cursor = startTime
+
+        while cursor < endTime {
+            slotTimes.append(cursor)
+            cursor = cursor.addingTimeInterval(interval)
+        }
+
+        let formatter = ISO8601DateFormatter()
+
+        db.runTransaction({ txn, errorPointer -> Any? in
+
+            var slotRefs: [DocumentReference] = []
+
+            for slotStart in slotTimes {
+
+                let slotId = formatter.string(from: slotStart)
+                let ref = slotCollection.document(slotId)
+                slotRefs.append(ref)
+
+                let snap: DocumentSnapshot
+
+                do {
+                    snap = try txn.getDocument(ref)
+                } catch {
+                    errorPointer?.pointee = error as NSError
+                    return nil
                 }
 
-                if let snapshot, !snapshot.documents.isEmpty {
-                    completion(.failure(NSError(
+                // ❗ SLOT MUST EXIST
+                guard snap.exists else {
+
+                    errorPointer?.pointee = NSError(
+                        domain: "BookingService",
+                        code: 404,
+                        userInfo: [NSLocalizedDescriptionKey:
+                                   "Slot does not exist"]
+                    )
+                    return nil
+                }
+
+                if (snap.data()?["isBooked"] as? Bool) == true {
+
+                    errorPointer?.pointee = NSError(
                         domain: "BookingService",
                         code: 409,
-                        userInfo: [NSLocalizedDescriptionKey: "Slot just booked."]
-                    )))
-                    return
-                }
-
-                let booking = Booking(
-                    businessId: businessId,
-                    customerId: customerId,
-                    ownerId: "",
-                    serviceId: serviceId,
-                    serviceName: service.name,
-                    serviceDurationMinutes: service.durationMinutes,
-                    price: Int((service.price * 100).rounded()), // pence
-                    staffId: staffId,
-                    staffName: staff.name,
-                    customerName: customerName,
-                    customerAddress: customerAddress,
-                    paymentIntentId: pi,
-                    refundId: nil,
-                    refundedAt: nil,
-                    isPaid: true,
-                    bookingDay: bookingDay,
-                    date: bookingDay,
-                    startDate: startTime,
-                    endDate: endTime,
-                    status: .confirmed,
-                    createdAt: Date()
-                )
-
-                // -------------------------------------------------
-                // CREATE BOOKING
-                // -------------------------------------------------
-                self.bookingRepo.createBooking(booking) { result in
-                    switch result {
-
-                    case .failure(let error):
-                        completion(.failure(error))
-
-                    case .success:
-
-                        guard let bookingId = booking.id else {
-                            completion(.success(()))
-                            return
-                        }
-
-                        // -------------------------------------------------
-                        // MARK *ALL* OVERLAPPING SLOTS AS BOOKED
-                        // booking: startTime -> endTime (e.g. 60 mins)
-                        // slots: 30-min increments (e.g. 11:00 & 11:30)
-                        // -------------------------------------------------
-                        let slotsRef = self.db
-                            .collection("businesses")
-                            .document(businessId)
-                            .collection("staff")
-                            .document(staffId)
-                            .collection("availableSlots")
-
-                        slotsRef
-                            .whereField("startTime", isGreaterThanOrEqualTo: Timestamp(date: startTime))
-                            .whereField("startTime", isLessThan: Timestamp(date: endTime))
-                            .getDocuments { snap, err in
-
-                                if let err {
-                                    completion(.failure(err))
-                                    return
-                                }
-
-                                let docs = snap?.documents ?? []
-                                guard !docs.isEmpty else {
-                                    // Booking exists, but slot docs not found (e.g. availability not generated)
-                                    completion(.success(()))
-                                    return
-                                }
-
-                                let pricePence = Int((service.price * 100).rounded())
-                                let batch = self.db.batch()
-
-                                for doc in docs {
-                                    batch.updateData([
-                                        "isBooked": true,
-                                        "bookingId": bookingId,
-                                        // Store the booking price so your dashboard math can read slot revenue
-                                        "price": pricePence
-                                    ], forDocument: doc.reference)
-                                }
-
-                                batch.commit { commitErr in
-                                    if let commitErr {
-                                        completion(.failure(commitErr))
-                                    } else {
-                                        completion(.success(()))
-                                    }
-                                }
-                            }
-                    }
+                        userInfo: [NSLocalizedDescriptionKey:
+                                   "Slot already booked"]
+                    )
+                    return nil
                 }
             }
+
+            txn.setData([
+
+                "businessId": businessId,
+                "customerId": customerId,
+
+                "serviceId": serviceId,
+                "serviceName": service.name,
+                "serviceDurationMinutes": service.durationMinutes,
+
+                "price": pricePence,
+
+                "staffId": staffId,
+                "staffName": staff.name,
+
+                "customerName": customerName,
+                "customerAddress": customerAddress,
+
+                "paymentIntentId": paymentIntentId ?? "",
+
+                "bookingDay": Timestamp(date: bookingDay),
+                "date": Timestamp(date: bookingDay),
+
+                "startDate": Timestamp(date: startTime),
+                "endDate": Timestamp(date: endTime),
+
+                "status": BookingStatus.confirmed.rawValue,
+
+                "source": source, // 👈 NEW
+
+                "createdAt": FieldValue.serverTimestamp()
+
+            ], forDocument: bookingRef)
+
+            for ref in slotRefs {
+                txn.setData([
+                    "isBooked": true,
+                    "bookingId": bookingId
+                ], forDocument: ref, merge: true)
+            }
+
+            return nil
+
+        }) { _, error in
+
+            if let error {
+                completion(.failure(error))
+            } else {
+                completion(.success(()))
+            }
+        }
     }
 
     // =================================================
-    // CUSTOMER CANCEL → CLOUD FUNCTION REFUND
+    // CUSTOMER CANCEL
     // =================================================
+
     func cancelBookingAsCustomer(
         booking: Booking,
         completion: @escaping (Result<Void, Error>) -> Void
@@ -208,34 +180,47 @@ final class BookingService {
     // =================================================
     // BUSINESS CANCEL
     // =================================================
+
     func cancelBookingAsBusiness(
         bookingId: String,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
+
         db.collection("bookings")
             .document(bookingId)
             .updateData([
-                "status": BookingStatus.cancelledByBusiness.rawValue
+                "status": BookingStatus.cancelledByBusiness.rawValue,
+                "cancelledAt": FieldValue.serverTimestamp()
             ]) { error in
-                if let error { completion(.failure(error)) }
-                else { completion(.success(())) }
+
+                if let error {
+                    completion(.failure(error))
+                } else {
+                    completion(.success(()))
+                }
             }
     }
 
     // =================================================
-    // MANUAL COMPLETE
+    // MARK COMPLETE
     // =================================================
+
     func markBookingAsCompleted(
         bookingId: String,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
+
         db.collection("bookings")
             .document(bookingId)
             .updateData([
                 "status": BookingStatus.completed.rawValue
             ]) { error in
-                if let error { completion(.failure(error)) }
-                else { completion(.success(())) }
+
+                if let error {
+                    completion(.failure(error))
+                } else {
+                    completion(.success(()))
+                }
             }
     }
 }

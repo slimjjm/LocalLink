@@ -5,51 +5,97 @@ struct SettingsView: View {
     @EnvironmentObject private var nav: NavigationState
     @EnvironmentObject private var authManager: AuthManager
 
-    var body: some View {
-        List {
-            supportSection
-            signOutSection
-        }
-        .navigationTitle("Settings")
+    // MARK: - Role Check
+
+    private var isBusinessUser: Bool {
+        authManager.role == .business
     }
 
-    // MARK: - Support
+    // MARK: - Body
+
+    var body: some View {
+
+        List {
+
+            // Business Section
+            if isBusinessUser {
+                businessSection
+            }
+
+            // Support Section
+            supportSection
+
+            // Sign Out Section
+            signOutSection
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Settings")
+        .scrollContentBackground(.hidden)
+        .background(AppColors.background)
+    }
+
+    // MARK: - Business Section
+
+    private var businessSection: some View {
+
+        Section("Business") {
+
+            NavigationLink {
+                BusinessSubscriptionResolverView()
+            } label: {
+                Label("Subscription", systemImage: "creditcard")
+                    .foregroundColor(AppColors.primary)
+            }
+        }
+    }
+
+    // MARK: - Support Section
 
     private var supportSection: some View {
+
         Section("Support") {
 
-            NavigationLink("Your account") {
+            NavigationLink {
                 YourAccountView()
+            } label: {
+                Label("Your account", systemImage: "person.circle")
             }
 
             Link(
-                "Privacy Policy",
                 destination: URL(string: "https://locallinkapp.co.uk/privacy")!
-            )
+            ) {
+                Label("Privacy Policy", systemImage: "lock.shield")
+            }
 
             Link(
-                "Terms & Conditions",
                 destination: URL(string: "https://locallinkapp.co.uk/terms")!
-            )
+            ) {
+                Label("Terms & Conditions", systemImage: "doc.text")
+            }
 
             Link(
-                "Contact us",
                 destination: URL(string: "https://locallinkapp.co.uk/contact")!
-            )
+            ) {
+                Label("Contact us", systemImage: "envelope")
+            }
         }
     }
 
-    // MARK: - Sign Out
+    // MARK: - Sign Out Section
 
     private var signOutSection: some View {
+
         Section {
+
             Button(role: .destructive) {
+
                 authManager.logout()
                 nav.reset()
+
             } label: {
-                Label("Sign out", systemImage: "arrow.backward.circle")
+
+                Label("Sign out", systemImage: "arrow.backward.circle.fill")
             }
         }
     }
 }
-

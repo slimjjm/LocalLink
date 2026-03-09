@@ -8,12 +8,14 @@ struct StaffAvailabilityView: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    @State private var weeklyAvailability: [Int: (Bool, String, String)] = [:]
+    @State private var weeklyAvailability: [String: (isOpen: Bool, open: String, close: String)] = [:]
     @State private var isSaving = false
     @State private var errorMessage: String?
 
     private let db = Firestore.firestore()
     private let horizonService = AvailabilityHorizonService()
+
+    private let weekdayKeys = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]
 
     var body: some View {
         Form {
@@ -24,14 +26,14 @@ struct StaffAvailabilityView: View {
             }
 
             Section("Weekly availability") {
-                ForEach(1...7, id: \.self) { weekday in
-                    weeklyRow(for: weekday)
+                ForEach(weekdayKeys, id: \.self) { key in
+                    weeklyRow(for: key)
                 }
             }
 
             Section {
                 Button {
-                    saveAndGenerate()
+                    Task { await saveAndGenerate() }
                 } label: {
                     HStack {
                         if isSaving { ProgressView() }
@@ -52,41 +54,41 @@ struct StaffAvailabilityView: View {
         .onAppear { loadWeeklyAvailability() }
     }
 
-    // MARK: - Weekly Row
-    private func weeklyRow(for weekday: Int) -> some View {
-        let data = weeklyAvailability[weekday] ?? (false, "09:00", "17:00")
+    private func weeklyRow(for weekdayKey: String) -> some View {
+        let data = weeklyAvailability[weekdayKey] ?? (false, "09:00", "17:00")
 
-        return VStack(alignment: .leading) {
+        return VStack(alignment: .leading, spacing: 8) {
             Toggle(isOn: Binding(
-                get: { data.0 },
+                get: { data.isOpen },
                 set: { newValue in
-                    weeklyAvailability[weekday] = (newValue, data.1, data.2)
+                    weeklyAvailability[weekdayKey] = (newValue, data.open, data.close)
                 }
             )) {
-                Text(weekdayName(weekday))
+                Text(weekdayKey.capitalized)
             }
 
-            if data.0 {
+            if data.isOpen {
                 HStack {
                     Text("Open")
-                    TextField("Start", text: Binding(
-                        get: { data.1 },
-                        set: { weeklyAvailability[weekday] = (data.0, $0, data.2) }
+                    TextField("09:00", text: Binding(
+                        get: { data.open },
+                        set: { weeklyAvailability[weekdayKey] = (data.isOpen, $0, data.close) }
                     ))
+                    .keyboardType(.numbersAndPunctuation)
                     .frame(width: 80)
 
                     Text("Close")
-                    TextField("End", text: Binding(
-                        get: { data.2 },
-                        set: { weeklyAvailability[weekday] = (data.0, data.1, $0) }
+                    TextField("17:00", text: Binding(
+                        get: { data.close },
+                        set: { weeklyAvailability[weekdayKey] = (data.isOpen, data.open, $0) }
                     ))
+                    .keyboardType(.numbersAndPunctuation)
                     .frame(width: 80)
                 }
             }
         }
     }
 
-    // MARK: - Load weekly template
     private func loadWeeklyAvailability() {
         guard let staffId = staff.id else { return }
 
@@ -101,18 +103,19 @@ struct StaffAvailabilityView: View {
                     print("❌ loadWeeklyAvailability error:", error)
                 }
 
-                var result: [Int: (Bool, String, String)] = [:]
+                var result: [String: (Bool, String, String)] = [:]
 
                 snapshot?.documents.forEach { doc in
-                    let weekday = Int(doc.documentID) ?? 0
+                    let key = doc.documentID.lowercased() // monday, tuesday...
                     let open = doc["open"] as? String ?? "09:00"
                     let close = doc["close"] as? String ?? "17:00"
                     let closed = doc["closed"] as? Bool ?? true
-                    result[weekday] = (!closed, open, close)
+                    result[key] = (!closed, open, close)
                 }
 
-                for day in 1...7 where result[day] == nil {
-                    result[day] = (false, "09:00", "17:00")
+                // fill missing defaults
+                for k in weekdayKeys where result[k] == nil {
+                    result[k] = (false, "09:00", "17:00")
                 }
 
                 DispatchQueue.main.async {
@@ -121,59 +124,56 @@ struct StaffAvailabilityView: View {
             }
     }
 
-    // MARK: - Save + Generate
-    private func saveAndGenerate() {
+    @MainActor
+    private func saveAndGenerate() async {
         guard let staffId = staff.id else { return }
 
         isSaving = true
         errorMessage = nil
 
-        let batch = db.batch()
-
-        weeklyAvailability.forEach { weekday, value in
-            let ref = db.collection("businesses")
-                .document(businessId)
-                .collection("staff")
-                .document(staffId)
-                .collection("weeklyAvailability")
-                .document(String(weekday))
-
-            batch.setData(
-                [
-                    "open": value.1,
-                    "close": value.2,
-                    "closed": !value.0
-                ],
-                forDocument: ref
-            )
-        }
-
-        batch.commit { error in
-            if let error {
-                DispatchQueue.main.async {
-                    self.errorMessage = error.localizedDescription
-                    self.isSaving = false
-                }
+        // validate times
+        for (k, v) in weeklyAvailability where v.isOpen {
+            if !TimeHHmm.isValid(v.open) || !TimeHHmm.isValid(v.close) {
+                errorMessage = "Invalid time on \(k.capitalized). Use HH:mm (e.g. 09:00)."
+                isSaving = false
                 return
             }
+        }
 
-            Task {
-                _ = await horizonService.ensureHorizon(
-                    businessId: businessId,
-                    staffId: staffId,
-                    horizonDays: 14
-                )
+        let staffRef = db.collection("businesses")
+            .document(businessId)
+            .collection("staff")
+            .document(staffId)
 
-                await MainActor.run {
-                    self.isSaving = false
-                    dismiss()
-                }
+        do {
+            let batch = db.batch()
+
+            weeklyAvailability.forEach { weekdayKey, value in
+                let ref = staffRef
+                    .collection("weeklyAvailability")
+                    .document(weekdayKey) // ✅ monday/tuesday...
+
+                batch.setData([
+                    "open": value.open,
+                    "close": value.close,
+                    "closed": !value.isOpen
+                ], forDocument: ref, merge: true)
             }
+
+            try await batch.commit()
+
+            try await horizonService.ensureHorizon(
+                businessId: businessId,
+                staffId: staffId,
+                horizonDays: 14
+            )
+
+            isSaving = false
+            dismiss()
+
+        } catch {
+            errorMessage = error.localizedDescription
+            isSaving = false
         }
     }
-
-    private func weekdayName(_ weekday: Int) -> String {
-        Calendar.current.weekdaySymbols[weekday - 1]
-    }
 }
-

@@ -42,5 +42,28 @@ extension Date {
         return cal.date(from: final)
     }
 }
+import Foundation
 
+extension Date {
+    func dayId() -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone.current
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: self)
+    }
+}
+
+enum TimeHHmm {
+    static func isValid(_ s: String) -> Bool {
+        let parts = s.split(separator: ":")
+        guard parts.count == 2,
+              let h = Int(parts[0]),
+              let m = Int(parts[1]),
+              (0...23).contains(h),
+              (0...59).contains(m)
+        else { return false }
+        return true
+    }
+}
 

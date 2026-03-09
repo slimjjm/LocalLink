@@ -111,7 +111,6 @@ struct WeeklyAvailabilityEditView: View {
                 Button {
                     saveAndGenerate()
                 } label: {
-
                     HStack {
                         if isSaving { ProgressView() }
                         Text(isSaving ? "Saving…" : "Save & regenerate availability")
@@ -152,7 +151,6 @@ struct WeeklyAvailabilityEditView: View {
                 self.isLoading = false
 
                 switch result {
-
                 case .failure(let error):
                     self.errorMessage = error.localizedDescription
 
@@ -163,7 +161,6 @@ struct WeeklyAvailabilityEditView: View {
                         let key = days[i].key.rawValue
 
                         if let saved = week[key] {
-
                             days[i].closed = saved.closed
                             days[i].openTime = Self.timeToDate(saved.open)
                             days[i].closeTime = Self.timeToDate(saved.close)
@@ -171,9 +168,7 @@ struct WeeklyAvailabilityEditView: View {
                     }
                 }
 
-                Task {
-                    await refreshGeneratedUntil()
-                }
+                Task { await refreshGeneratedUntil() }
             }
         }
     }
@@ -204,9 +199,7 @@ struct WeeklyAvailabilityEditView: View {
         repo.saveWeek(businessId: businessId, staffId: staffId, week: week) { result in
 
             switch result {
-
             case .failure(let error):
-
                 DispatchQueue.main.async {
                     self.errorMessage = error.localizedDescription
                     self.isSaving = false
@@ -221,11 +214,11 @@ struct WeeklyAvailabilityEditView: View {
 
                 Task {
                     do {
-
-                        try await AvailabilityGenerator().regenerateNextDays(
+                        try await AvailabilityGenerator().regenerateDays(
                             businessId: businessId,
                             staffId: staffId,
-                            numberOfDays: 60
+                            startDate: Date(),
+                            numberOfDays: 30
                         )
 
                         await refreshGeneratedUntil()
@@ -236,7 +229,6 @@ struct WeeklyAvailabilityEditView: View {
                         }
 
                     } catch {
-
                         await MainActor.run {
                             self.errorMessage = error.localizedDescription
                             self.isSaving = false
@@ -269,7 +261,6 @@ struct WeeklyAvailabilityEditView: View {
     private func refreshGeneratedUntil() async {
 
         do {
-
             let snap = try await db.collection("businesses")
                 .document(businessId)
                 .collection("staff")
@@ -279,7 +270,6 @@ struct WeeklyAvailabilityEditView: View {
                 .getDocument()
 
             if let ts = snap.data()?["generatedUntil"] as? Timestamp {
-
                 await MainActor.run {
                     self.generatedUntil = ts.dateValue()
                 }

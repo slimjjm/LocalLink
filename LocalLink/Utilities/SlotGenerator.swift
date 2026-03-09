@@ -7,14 +7,22 @@ struct SlotGenerator {
     private let db = Firestore.firestore()
     private let calendar = Calendar.current
 
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
     func generateSlotsForDay(
         businessId: String,
         staffId: String,
         date: Date,
         startTime: Date,
         endTime: Date,
-        blockedTimes: [BlockedTime],
-        intervalMinutes: Int = 30
+        intervalMinutes: Int = 30,
+        // ✅ IMPORTANT: During regen, keep these false
+        shouldClearExistingSlots: Bool = false,
+        shouldCancelConflictingBookings: Bool = false
     ) async throws {
 
         let staffRef = db
@@ -25,89 +33,106 @@ struct SlotGenerator {
 
         let slotCollection = staffRef.collection("availableSlots")
 
-        print("🔄 Regenerating slots for:", date)
-
-        // =========================================
-        // STEP 0 — CANCEL CONFLICTING BOOKINGS
-        // =========================================
-
-        let bookingsSnapshot = try await db
-            .collection("bookings")
-            .whereField("businessId", isEqualTo: businessId)
-            .whereField("staffId", isEqualTo: staffId)
-            .whereField("status", isEqualTo: "confirmed")
-            .getDocuments()
-
-        for bookingDoc in bookingsSnapshot.documents {
-
-            guard
-                let startTS = bookingDoc["startDate"] as? Timestamp,
-                let endTS   = bookingDoc["endDate"]   as? Timestamp
-            else {
-                print("⚠️ Booking missing startDate/endDate:", bookingDoc.documentID)
-                continue
-            }
-
-            let bookingStart = startTS.dateValue()
-            let bookingEnd   = endTS.dateValue()
-
-            let overlapsBlockedTime = blockedTimes.contains {
-                bookingStart < $0.endDate && bookingEnd > $0.startDate
-            }
-
-            if overlapsBlockedTime {
-
-                print("🚨 BOOKING OVERLAPS BLOCK:", bookingDoc.documentID)
-
-                try await db
-                    .collection("bookings")
-                    .document(bookingDoc.documentID)
-                    .updateData([
-                        "status": "cancelled_by_business",
-                        "cancelReason": "staff_unavailable",
-                        "cancelledAt": FieldValue.serverTimestamp()
-                    ])
-
-                print("❌ Booking cancelled:", bookingDoc.documentID)
-            }
-        }
-
-        // =========================================
-        // STEP 1 — DELETE EXISTING SLOTS FOR DAY
-        // =========================================
-
         let startOfDay = calendar.startOfDay(for: date)
         let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
 
-        let existingSlots = try await slotCollection
-            .whereField("startTime", isGreaterThanOrEqualTo: Timestamp(date: startOfDay))
-            .whereField("startTime", isLessThan: Timestamp(date: endOfDay))
+        // ===============================
+        // DAY BLOCK CHECK (business-level collections with staffId field)
+        // ===============================
+
+        let dayBlockSnapshot = try await db
+            .collection("businesses")
+            .document(businessId)
+            .collection("dayBlocks")
+            .whereField("staffId", isEqualTo: staffId)
+            .whereField("startDate", isLessThanOrEqualTo: Timestamp(date: startOfDay))
+            .whereField("endDate", isGreaterThanOrEqualTo: Timestamp(date: startOfDay))
             .getDocuments()
 
-        var deleteBatch = db.batch()
-        var deleteCount = 0
+        let hasDayBlock = !dayBlockSnapshot.documents.isEmpty
 
-        for doc in existingSlots.documents {
+        // ===============================
+        // TIME BLOCK FETCH
+        // ===============================
 
-            deleteBatch.deleteDocument(doc.reference)
-            deleteCount += 1
+        var timeBlocks: [TimeBlock] = []
 
-            if deleteCount == 450 {
-                try await deleteBatch.commit()
-                deleteBatch = db.batch()
-                deleteCount = 0
+        if !hasDayBlock {
+            let snapshot = try await db
+                .collection("businesses")
+                .document(businessId)
+                .collection("timeBlocks")
+                .whereField("staffId", isEqualTo: staffId)
+                .whereField("startDate", isLessThan: Timestamp(date: endOfDay))
+                .whereField("endDate", isGreaterThan: Timestamp(date: startOfDay))
+                .getDocuments()
+
+            timeBlocks = snapshot.documents.compactMap {
+                try? $0.data(as: TimeBlock.self)
             }
         }
 
-        if deleteCount > 0 {
-            try await deleteBatch.commit()
+        // ===============================
+        // OPTIONAL: CANCEL BOOKINGS (heavy + not business-friendly)
+        // ===============================
+
+        if shouldCancelConflictingBookings {
+
+            let bookingsSnapshot = try await db
+                .collection("bookings")
+                .whereField("businessId", isEqualTo: businessId)
+                .whereField("staffId", isEqualTo: staffId)
+                .whereField("status", isEqualTo: BookingStatus.confirmed.rawValue)
+                .whereField("startDate", isLessThan: Timestamp(date: endOfDay))
+                .whereField("endDate", isGreaterThan: Timestamp(date: startOfDay))
+                .getDocuments()
+
+            for bookingDoc in bookingsSnapshot.documents {
+
+                guard
+                    let startTS = bookingDoc["startDate"] as? Timestamp,
+                    let endTS = bookingDoc["endDate"] as? Timestamp
+                else { continue }
+
+                let bookingStart = startTS.dateValue()
+                let bookingEnd = endTS.dateValue()
+
+                let shouldCancel = hasDayBlock || timeBlocks.contains {
+                    bookingStart < $0.endDate && bookingEnd > $0.startDate
+                }
+
+                if shouldCancel {
+                    try await db
+                        .collection("bookings")
+                        .document(bookingDoc.documentID)
+                        .updateData([
+                            "status": BookingStatus.cancelledByBusiness.rawValue,
+                            "cancelledAt": FieldValue.serverTimestamp()
+                        ])
+                }
+            }
         }
 
-        print("🗑 Deleted existing slots:", existingSlots.count)
+        // ===============================
+        // OPTIONAL: DELETE EXISTING SLOTS (only use outside full regen)
+        // ===============================
 
-        // =========================================
-        // STEP 2 — BUILD NEW SLOTS
-        // =========================================
+        if shouldClearExistingSlots {
+
+            let existingSlots = try await slotCollection
+                .whereField("startTime", isGreaterThanOrEqualTo: Timestamp(date: startOfDay))
+                .whereField("startTime", isLessThan: Timestamp(date: endOfDay))
+                .getDocuments()
+
+            try await deleteAsync(docs: existingSlots.documents)
+        }
+
+        // If fully day-blocked: nothing to create
+        if hasDayBlock { return }
+
+        // ===============================
+        // REBUILD SLOTS (BATCHED)
+        // ===============================
 
         let slots = SlotBuilder.buildSlots(
             date: date,
@@ -116,53 +141,67 @@ struct SlotGenerator {
             intervalMinutes: intervalMinutes
         )
 
-        var writeBatch = db.batch()
+        var batch = db.batch()
         var writeCount = 0
 
         for slotStart in slots {
 
-            guard let slotEnd = calendar.date(
-                byAdding: .minute,
-                value: intervalMinutes,
-                to: slotStart
-            ) else { continue }
-
-            let isBlocked = blockedTimes.contains {
-                slotStart < $0.endDate && slotEnd > $0.startDate
-            }
-
-            if isBlocked {
-                print("🛑 SLOT REMOVED:", slotStart, "→", slotEnd)
+            guard let slotEnd = calendar.date(byAdding: .minute, value: intervalMinutes, to: slotStart) else {
                 continue
             }
 
-            print("✅ SLOT KEPT:", slotStart, "→", slotEnd)
+            let overlaps = timeBlocks.contains {
+                slotStart < $0.endDate && slotEnd > $0.startDate
+            }
+            if overlaps { continue }
 
-            let slotId = ISO8601DateFormatter().string(from: slotStart)
+            let slotId = Self.isoFormatter.string(from: slotStart)
+
             let ref = slotCollection.document(slotId)
 
-            writeBatch.setData([
+            batch.setData([
+                "businessId": businessId,
+                "staffId": staffId,
                 "startTime": Timestamp(date: slotStart),
                 "endTime": Timestamp(date: slotEnd),
-                "date": Timestamp(date: date),
-                "isBooked": false,
-                "bookingId": NSNull(),
-                "createdAt": FieldValue.serverTimestamp()
-            ], forDocument: ref)
+                "isBooked": false
+            ], forDocument: ref, merge: true)
 
             writeCount += 1
 
             if writeCount == 450 {
-                try await writeBatch.commit()
-                writeBatch = db.batch()
+                try await batch.commit()
+                batch = db.batch()
                 writeCount = 0
             }
         }
 
         if writeCount > 0 {
-            try await writeBatch.commit()
+            try await batch.commit()
         }
+    }
 
-        print("🎯 Slot regeneration complete")
+    // ===============================
+    // DELETE HELPER (batched)
+    // ===============================
+
+    private func deleteAsync(docs: [QueryDocumentSnapshot]) async throws {
+
+        guard !docs.isEmpty else { return }
+
+        let chunkSize = 450
+        var index = 0
+
+        while index < docs.count {
+
+            let end = min(index + chunkSize, docs.count)
+            let chunk = Array(docs[index..<end])
+
+            let batch = db.batch()
+            chunk.forEach { batch.deleteDocument($0.reference) }
+
+            try await batch.commit()
+            index = end
+        }
     }
 }

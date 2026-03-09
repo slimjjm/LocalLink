@@ -8,10 +8,13 @@ struct Staff: Identifiable, Codable, Hashable {
 
     let name: String
 
-    var serviceIds: [String]?   // ← what skills they can perform
-    var skills: [String]?       // optional display
+    var serviceIds: [String]?
+    var skills: [String]?
     var isActive: Bool
-    var createdAt: Date?
+    var createdAt: Date
+
+    // 🔑 NEW — staff priority for subscription entitlement
+    var seatRank: Int?
 
     static func == (lhs: Staff, rhs: Staff) -> Bool {
         lhs.id == rhs.id

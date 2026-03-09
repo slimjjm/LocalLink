@@ -3,29 +3,29 @@ import FirebaseFirestore
 import FirebaseFirestoreSwift
 
 struct AddBlockTimeView: View {
-    
+
     let businessId: String
-    let staffId: String   // ✅ REAL staffId passed in
-    
+    let staffId: String
+
     @Environment(\.dismiss) private var dismiss
-    private let service = BlockedTimeService()
-    
+
     @State private var title: String = "Lunch"
     @State private var startDate: Date = Date()
     @State private var endDate: Date = Date().addingTimeInterval(3600)
     @State private var isSaving: Bool = false
-    
-    @State private var repeatType: String = "none"
-    @State private var repeatUntil: Date =
-        Calendar.current.date(byAdding: .month, value: 3, to: Date())!
-    
-    @State private var showConflictDialog = false
-    @State private var conflictCount = 0
-    
+
+    // 🔥 Conflict Flow State
+    @State private var conflicts: [BookingConflict] = []
+    @State private var showConflictSheet = false
+    @State private var showConfirmCancel = false
+
+    private let db = Firestore.firestore()
+    private let conflictService = BlockConflictService()
+
     private var isEndAfterStart: Bool {
         endDate > startDate
     }
-    
+
     private let options = [
         "Lunch",
         "Training",
@@ -33,11 +33,11 @@ struct AddBlockTimeView: View {
         "Walk-ins",
         "Personal"
     ]
-    
+
     var body: some View {
-        
+
         Form {
-            
+
             Section("Reason") {
                 Picker("Type", selection: $title) {
                     ForEach(options, id: \.self) {
@@ -45,7 +45,7 @@ struct AddBlockTimeView: View {
                     }
                 }
             }
-            
+
             Section("Start") {
                 DatePicker(
                     "Start time",
@@ -53,7 +53,7 @@ struct AddBlockTimeView: View {
                     displayedComponents: [.date, .hourAndMinute]
                 )
             }
-            
+
             Section("End") {
                 DatePicker(
                     "End time",
@@ -62,25 +62,9 @@ struct AddBlockTimeView: View {
                     displayedComponents: [.date, .hourAndMinute]
                 )
             }
-            
-            Section("Repeat") {
-                Picker("Repeat", selection: $repeatType) {
-                    Text("Does not repeat").tag("none")
-                    Text("Every day").tag("daily")
-                    Text("Every week").tag("weekly")
-                    Text("Every month").tag("monthly")
-                }
-                
-                if repeatType != "none" {
-                    DatePicker(
-                        "Repeat until",
-                        selection: $repeatUntil,
-                        in: startDate...,
-                        displayedComponents: .date
-                    )
-                }
+            .onChange(of: startDate) { newValue in
+                endDate = newValue.addingTimeInterval(1800)
             }
-            
             Section {
                 Button {
                     save()
@@ -95,139 +79,179 @@ struct AddBlockTimeView: View {
             }
         }
         .navigationTitle("Block time")
-        .onChange(of: startDate) { newStart in
-            if endDate <= newStart {
-                endDate = newStart.addingTimeInterval(1800)
-            }
-        }
-        
-        .confirmationDialog(
-            "This will cancel \(conflictCount) confirmed appointment(s). The customer will be refunded.",
-            isPresented: $showConflictDialog,
-            titleVisibility: .visible
-        ) {
-            Button("Continue Anyway", role: .destructive) {
-                actuallySaveBlock()
-            }
-            Button("Cancel", role: .cancel) { }
-        }
-    }
-    
-    // =========================================
-    // SAVE FLOW
-    // =========================================
-    
-    private func save() {
-        
-        guard isEndAfterStart else { return }
-        
-        isSaving = true
-        
-        service.checkConflictingBookings(
-            businessId: businessId,
-            staffId: staffId,   // ✅ NOW STAFF-SPECIFIC
-            startDate: startDate,
-            endDate: endDate
-        ) { result in
-            
-            DispatchQueue.main.async {
-                
-                switch result {
-                    
-                case .failure(let error):
-                    print("❌ Conflict check failed:", error)
-                    isSaving = false
-                    
-                case .success(let count):
-                    
-                    if count > 0 {
-                        conflictCount = count
-                        showConflictDialog = true
-                        isSaving = false
-                    } else {
-                        actuallySaveBlock()
-                    }
+
+        // =================================================
+        // CONFLICT SHEET
+        // =================================================
+        .sheet(isPresented: $showConflictSheet) {
+            BlockConflictSheet(
+                conflicts: conflicts,
+                onCancelBlock: {
+                    showConflictSheet = false
+                },
+                onEditBlock: {
+                    showConflictSheet = false
+                },
+                onContinue: {
+                    showConflictSheet = false
+                    showConfirmCancel = true
                 }
-            }
+            )
         }
-    }
-    
-    private func actuallySaveBlock() {
-        
-        isSaving = true
-        
-        service.addBlock(
-            businessId: businessId,
-            title: title,
-            startDate: startDate,
-            endDate: endDate,
-            repeatType: repeatType,
-            repeatUntil: repeatType == "none" ? nil : repeatUntil
-        ) { result in
-            
-            DispatchQueue.main.async {
-                
-                switch result {
-                    
-                case .failure(let error):
-                    print("❌ Block save FAILED:", error.localizedDescription)
-                    isSaving = false
-                    
-                case .success:
-                    
-                    print("✅ Block saved — regenerating slots")
-                    
+
+        // =================================================
+        // CONFIRM CANCELLATION SHEET
+        // =================================================
+        .sheet(isPresented: $showConfirmCancel) {
+            ConfirmBookingCancellationView(
+                conflicts: conflicts,
+                onConfirm: {
                     Task {
-                        
                         do {
-                            
-                            let generator = SlotGenerator()
-                            
-                            let blocks = await fetchBlocksForDay()
-                            
-                            try await generator.generateSlotsForDay(
-                                businessId: businessId,
-                                staffId: staffId,   // ✅ REAL staff
-                                date: startDate,
-                                startTime: Calendar.current.startOfDay(for: startDate),
-                                endTime: Calendar.current.date(byAdding: .day, value: 1, to: startDate)!,
-                                blockedTimes: blocks
+                            try await conflictService.cancelBookings(
+                                conflicts: conflicts,
+                                staffId: staffId,
+                                blockId: UUID().uuidString
                             )
-                            
-                            print("🎯 Generator complete")
-                            
-                            DispatchQueue.main.async {
-                                isSaving = false
-                                dismiss()
-                            }
-                            
+
+                            try await applyBlockAndRegen()
+
+                            showConfirmCancel = false
                         } catch {
-                            print("❌ Generator failed:", error)
-                            isSaving = false
+                            print("❌ Cancellation failed:", error)
                         }
                     }
+                },
+                onBack: {
+                    showConfirmCancel = false
+                }
+            )
+        }
+    }
+
+    // =================================================
+    // SAVE ENTRY POINT
+    // =================================================
+
+    private func save() {
+
+        guard isEndAfterStart else { return }
+        isSaving = true
+
+        Task {
+            do {
+
+                // 1️⃣ Check conflicts FIRST
+                let foundConflicts = try await conflictService.fetchConflictingBookings(
+                    businessId: businessId,
+                    staffId: staffId,
+                    startDate: startDate,
+                    endDate: endDate
+                )
+
+                if !foundConflicts.isEmpty {
+
+                    await MainActor.run {
+                        conflicts = foundConflicts
+                        isSaving = false
+                        showConflictSheet = true
+                    }
+
+                    return
+                }
+
+                // 2️⃣ No conflicts → proceed normally
+                try await applyBlockAndRegen()
+
+            } catch {
+                print("❌ Save block failed:", error)
+                await MainActor.run {
+                    isSaving = false
                 }
             }
         }
     }
-    
-    private func fetchBlocksForDay() async -> [BlockedTime] {
-        
-        do {
-            
-            let snapshot = try await Firestore.firestore()
-                .collection("businesses")
-                .document(businessId)
-                .collection("blockedTimes")
-                .getDocuments()
-            
-            return snapshot.documents.compactMap {
-                try? $0.data(as: BlockedTime.self)
-            }
-            
-        } catch {
-            print("❌ Failed to fetch blocks:", error)
-            return []
+
+    // =================================================
+    // APPLY BLOCK + SLOT LOGIC
+    // =================================================
+
+    private func applyBlockAndRegen() async throws {
+
+        if isFullDayBlock {
+            try await addDayBlock()
+        } else {
+            try await addTimeBlock()
         }
+
+        try await AvailabilityGenerator().regenerateDays(
+            businessId: businessId,
+            staffId: staffId,
+            startDate: startDate,
+            numberOfDays: 1
+        )
+
+        await MainActor.run {
+            isSaving = false
+            dismiss()
+        }
+    }
+
+    // =================================================
+    // FULL DAY CHECK
+    // =================================================
+
+    private var isFullDayBlock: Bool {
+
+        let start = Calendar.current.startOfDay(for: startDate)
+        let end = Calendar.current.startOfDay(for: endDate)
+
+        return start == end
+        && Calendar.current.component(.hour, from: startDate) == 0
+        && Calendar.current.component(.minute, from: startDate) == 0
+    }
+
+    // =================================================
+    // ADD DAY BLOCK
+    // =================================================
+
+    private func addDayBlock() async throws {
+
+        let block = DayBlock(
+            staffId: staffId,
+            startDate: Calendar.current.startOfDay(for: startDate),
+            endDate: Calendar.current.startOfDay(for: endDate),
+            reason: title
+        )
+
+        _ = try db
+            .collection("businesses")
+            .document(businessId)
+            .collection("dayBlocks")
+            .addDocument(from: block)
+
+        print("📅 DayBlock added")
+    }
+
+    // =================================================
+    // ADD TIME BLOCK
+    // =================================================
+
+    private func addTimeBlock() async throws {
+
+        let block = TimeBlock(
+            staffId: staffId,
+            startDate: startDate,
+            endDate: endDate,
+            title: title
+        )
+
+        _ = try db
+            .collection("businesses")
+            .document(businessId)
+            .collection("timeBlocks")
+            .addDocument(from: block)
+
+        print("⏱ TimeBlock added")
     }
 }

@@ -1,14 +1,13 @@
 import SwiftUI
 
 struct CustomerBookingsView: View {
-
+    
     @StateObject private var viewModel = CustomerBookingsViewModel()
     @EnvironmentObject private var nav: NavigationState
-
+    
     var body: some View {
         List {
-
-            // Loading
+            
             if viewModel.isLoading {
                 HStack {
                     Spacer()
@@ -16,58 +15,83 @@ struct CustomerBookingsView: View {
                     Spacer()
                 }
             }
-
-            // Error
+            
             if let error = viewModel.errorMessage {
                 Text(error)
-                    .foregroundColor(.red)
-            }
-
-            // Upcoming bookings
+                .foregroundColor(AppColors.error)            }
+            
             if !viewModel.upcoming.isEmpty {
-                Section("Upcoming") {
+                Section("Upcoming bookings"){
                     ForEach(viewModel.upcoming) { booking in
                         bookingRow(booking)
                     }
                 }
             }
-
-            // Past bookings
+            
             if !viewModel.past.isEmpty {
-                Section("Past") {
+                Section("Past bookings") {
                     ForEach(viewModel.past) { booking in
                         bookingRow(booking)
                     }
                 }
             }
-
-            // Empty state
+            
             if !viewModel.isLoading &&
-               viewModel.upcoming.isEmpty &&
-               viewModel.past.isEmpty {
-
-                Text("No bookings yet")
+                viewModel.upcoming.isEmpty &&
+                viewModel.past.isEmpty {
+                
+                ContentUnavailableView(
+                    "No bookings yet",
+                    systemImage: "calendar",
+                    description: Text("Your upcoming bookings will appear here.")
+                )
                     .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, alignment: .center)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(AppColors.background)
         .navigationTitle("My Bookings")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             viewModel.loadBookings()
         }
     }
-
-    // MARK: - Booking Row Navigation
-
+    
+    // MARK: - Booking Row
+    
     @ViewBuilder
     private func bookingRow(_ booking: Booking) -> some View {
-        Button {
+        
+        Button(action: {
             guard let id = booking.id else { return }
-            nav.path.append(AppRoute.bookingDetail(bookingId: id))
-
-        } label: {
-            BookingRowView(booking: booking)
+            nav.path.append(
+                AppRoute.bookingDetail(
+                    bookingId: id,
+                    role: "customer"
+                )
+            )
+        }) {
+            ZStack(alignment: .topTrailing) {
+                
+                BookingRowView(booking: booking)
+                
+                // 🔴 Unread badge
+                if booking.unreadCustomerCount > 0 {
+                    unreadBadge(count: booking.unreadCustomerCount)
+                }
+            }
         }
+        .buttonStyle(.plain)
+    }
+    
+    private func unreadBadge(count: Int) -> some View {
+        Text("\(count)")
+            .font(.caption2.bold())
+            .foregroundColor(.white)
+            .padding(6)
+            .background(AppColors.primary)
+            .clipShape(Circle())
+            .offset(x: -12, y: 8)
     }
 }

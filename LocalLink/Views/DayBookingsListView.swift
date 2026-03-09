@@ -23,16 +23,18 @@ struct DayBookingsListView: View {
 
             ForEach(bookings) { booking in
 
-                VStack(alignment: .leading) {
+                VStack(alignment: .leading, spacing: 6) {
 
-                    Text(booking.serviceName)
+                    Text(booking.safeServiceName)
                         .font(.headline)
 
-                    Text(booking.customerName)
+                    Text(booking.safeCustomerName)
 
-                    Text(booking.customerAddress)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    if !booking.safeCustomerAddress.isEmpty {
+                        Text(booking.safeCustomerAddress)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
                 .padding(.vertical, 6)
             }
@@ -43,23 +45,14 @@ struct DayBookingsListView: View {
 
     private func load() {
 
-        guard let start =
-            calendar.startOfDay(for: date) as Date?,
-              let end =
-            calendar.date(byAdding: .day,
-                          value: 1,
-                          to: start)
-        else { return }
+        let start = calendar.startOfDay(for: date)
+        let end = calendar.date(byAdding: .day, value: 1, to: start)!
 
         db.collection("bookings")
-            .whereField("businessId",
-                        isEqualTo: businessId)
-            .whereField("startDate",
-                        isGreaterThanOrEqualTo: start)
-            .whereField("startDate",
-                        isLessThan: end)
-            .whereField("status",
-                        isEqualTo: "confirmed")
+            .whereField("businessId", isEqualTo: businessId)
+            .whereField("startDate", isGreaterThanOrEqualTo: start)
+            .whereField("startDate", isLessThan: end)
+            .whereField("status", isEqualTo: "confirmed")
             .getDocuments { snap, _ in
 
                 bookings = snap?.documents.compactMap {

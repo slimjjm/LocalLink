@@ -1,4 +1,3 @@
-
 import Foundation
 import FirebaseFirestoreSwift
 
@@ -7,7 +6,6 @@ struct BusinessEntitlements: Codable {
     var extraStaffSlots: Int = 0
 
     var totalAllowedStaff: Int {
-        max(0, freeStaffSlots + extraStaffSlots)
+        max(1, freeStaffSlots + extraStaffSlots)
     }
 }
-

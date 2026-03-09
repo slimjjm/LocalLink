@@ -1,5 +1,3 @@
-
-
 import Foundation
 import FirebaseFirestore
 import FirebaseFirestoreSwift
@@ -11,7 +9,7 @@ final class StaffRepository {
     private let functions = Functions.functions(region: "us-central1")
 
     // =================================================
-    // FETCH ALL STAFF (ordered by seatRank)
+    // MARK: - FETCH ALL STAFF (ordered by seatRank)
     // =================================================
     func fetchAllStaff(
         businessId: String,
@@ -39,7 +37,7 @@ final class StaffRepository {
     }
 
     // =================================================
-    // SERVER-ENFORCED CREATE (Cloud Function)
+    // MARK: - CREATE STAFF (Server Enforced)
     // =================================================
     func createStaff(
         businessId: String,
@@ -60,7 +58,10 @@ final class StaffRepository {
             throw NSError(
                 domain: "StaffRepository",
                 code: 0,
-                userInfo: [NSLocalizedDescriptionKey: "Invalid server response (missing staffId)."]
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Invalid server response (missing staffId)."
+                ]
             )
         }
 
@@ -68,56 +69,55 @@ final class StaffRepository {
     }
 
     // =================================================
-    // UPDATE SEAT RANKS (persist drag/drop ordering)
+    // MARK: - DELETE STAFF (Server Enforced)
+    // =================================================
+    func deleteStaff(
+        businessId: String,
+        staffId: String
+    ) async throws {
+
+        _ = try await functions
+            .httpsCallable("deleteStaffMember")
+            .call([
+                "businessId": businessId,
+                "staffId": staffId
+            ])
+    }
+
+    // =================================================
+    // MARK: - UPDATE SEAT RANKS (Server Enforced)
     // =================================================
     func updateSeatRanks(
         businessId: String,
         orderedStaff: [Staff]
     ) async throws {
 
-        let batch = db.batch()
+        let ids = orderedStaff.compactMap { $0.id }
 
-        for (index, member) in orderedStaff.enumerated() {
-            guard let staffId = member.id, !staffId.isEmpty else { continue }
-
-            let ref = db.collection("businesses")
-                .document(businessId)
-                .collection("staff")
-                .document(staffId)
-
-            batch.updateData(["seatRank": index], forDocument: ref)
-        }
-
-        try await batch.commitAsync()
+        _ = try await functions
+            .httpsCallable("updateStaffSeatRanks")
+            .call([
+                "businessId": businessId,
+                "orderedIds": ids
+            ])
     }
 
     // =================================================
-    // OPTIONAL: Re-apply enforcement after reorder
+    // MARK: - RECONCILE SEATS (Force Re-Enforcement)
     // =================================================
-    func reconcileSeatEnforcementNow(businessId: String) async {
+    func reconcileSeatEnforcementNow(
+        businessId: String
+    ) async {
+
         do {
             _ = try await functions
                 .httpsCallable("reconcileSeatEnforcementNow")
-                .call(["businessId": businessId])
+                .call([
+                    "businessId": businessId
+                ])
         } catch {
-            print("⚠️ reconcileSeatEnforcementNow failed:", error.localizedDescription)
-        }
-    }
-}
-
-// =====================================================
-// MARK: - WriteBatch async helper (works on all SDKs)
-// =====================================================
-private extension WriteBatch {
-    func commitAsync() async throws {
-        try await withCheckedThrowingContinuation { cont in
-            self.commit { error in
-                if let error = error {
-                    cont.resume(throwing: error)
-                } else {
-                    cont.resume(returning: ())
-                }
-            }
+            print("⚠️ reconcileSeatEnforcementNow failed:",
+                  error.localizedDescription)
         }
     }
 }

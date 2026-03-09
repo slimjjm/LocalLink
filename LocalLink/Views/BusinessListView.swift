@@ -2,54 +2,106 @@ import SwiftUI
 
 struct BusinessListView: View {
 
+    let town: String?
+    let category: String?
+
     @StateObject private var viewModel = CustomerBusinessListViewModel()
 
+    init(town: String? = nil, category: String? = nil) {
+        self.town = town
+        self.category = category
+    }
+
     var body: some View {
+
         List {
 
+            // MARK: - Header
+
             Section {
-                Text("Local businesses")
-                    .font(.headline)
+
+                VStack(alignment: .leading, spacing: 6) {
+
+                    Text("Local businesses")
+                        .font(.title3.bold())
+                        .foregroundColor(AppColors.charcoal)
+
+                    if let town, let category {
+
+                        Text("\(category) • \(town)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                    } else {
+
+                        Text("Browse all businesses")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
             }
 
+            // MARK: - Loading
+
             if viewModel.isLoading {
+
                 Section {
-                    ProgressView("Loading businesses…")
+
+                    HStack {
+                        Spacer()
+                        ProgressView("Loading businesses…")
+                        Spacer()
+                    }
                 }
             }
+
+            // MARK: - Error
+
             else if let error = viewModel.errorMessage {
+
                 Section {
+
                     Text(error)
-                        .foregroundColor(.red)
+                        .foregroundColor(AppColors.error)
                 }
             }
+
+            // MARK: - Empty
+
             else if viewModel.businesses.isEmpty {
+
                 Section {
+
                     ContentUnavailableView(
-                        "No businesses yet",
-                        systemImage: "building.2",
-                        description: Text("Local businesses will appear here once they join.")
+                        "No matches",
+                        systemImage: "magnifyingglass",
+                        description: Text("Try a different town or category.")
                     )
                 }
             }
-            else {
-                Section {
-                    ForEach(viewModel.businesses) { business in
-                        if let id = business.id {
-                            NavigationLink {
-                                CustomerServiceListView(businessId: id)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(business.businessName)
-                                        .font(.headline)
 
-                                    if let address = business.address {
-                                        Text(address)
-                                            .font(.subheadline)
-                                            .foregroundColor(.secondary)
-                                    }
-                                }
-                                .padding(.vertical, 4)
+            // MARK: - Results
+
+            else {
+
+                Section {
+
+                    ForEach(viewModel.businesses) { business in
+
+                        if let id = business.id {
+
+                            NavigationLink {
+
+                                CustomerBusinessProfileView(
+                                    businessId: id
+                                )
+
+                            } label: {
+
+                                BusinessRowView(
+                                    business: business
+                                )
                             }
                         }
                     }
@@ -57,9 +109,16 @@ struct BusinessListView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(AppColors.background)
         .navigationTitle("Select a business")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            viewModel.loadBusinesses()
+
+            viewModel.loadBusinesses(
+                town: town,
+                category: category
+            )
         }
     }
 }

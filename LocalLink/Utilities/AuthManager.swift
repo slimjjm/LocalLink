@@ -13,9 +13,13 @@ final class AuthManager: ObservableObject {
     }
 
     // MARK: - Published State
+
+    @Published private(set) var isAuthenticated: Bool = false
+    @Published private(set) var role: UserRole?
+    @Published var isRoleLoading: Bool = true
+
     @Published var isLoading = false
     @Published var errorMessage: String?
-    @Published private(set) var role: UserRole?
 
     @AppStorage("userRole") private var storedRole: String?
     @AppStorage("allowAnonymousAuth") private var allowAnonymousAuth = true
@@ -23,26 +27,69 @@ final class AuthManager: ObservableObject {
     private lazy var db = Firestore.firestore()
 
     // MARK: - Init
+
     init() {
+
         if let storedRole,
            let role = UserRole(rawValue: storedRole) {
             self.role = role
         }
 
-        DispatchQueue.main.async {
-            self.startSessionIfNeeded()
+        Auth.auth().addStateDidChangeListener { _, user in
+
+            DispatchQueue.main.async {
+
+                self.isAuthenticated = user != nil
+
+                if user != nil {
+                    self.isRoleLoading = true
+                    self.loadRoleFromFirestore()
+                } else {
+                    self.role = nil
+                    self.isRoleLoading = false
+                }
+            }
+        }
+
+        // 🔧 FIX
+        if allowAnonymousAuth && Auth.auth().currentUser == nil {
+            signInAnonymously()
         }
     }
+   
+    // MARK: - Load Role
 
-    // MARK: - Session bootstrap
-    private func startSessionIfNeeded() {
-        if Auth.auth().currentUser == nil && allowAnonymousAuth == true {
-            // Guest session only created when user taps guest
+    func loadRoleFromFirestore() {
+
+        guard let uid = Auth.auth().currentUser?.uid else {
+            isRoleLoading = false
+            return
         }
+
+        db.collection("users")
+            .document(uid)
+            .getDocument { snapshot, _ in
+
+                DispatchQueue.main.async {
+
+                    defer { self.isRoleLoading = false }
+
+                    guard let data = snapshot?.data(),
+                          let roleString = data["role"] as? String,
+                          let role = UserRole(rawValue: roleString) else {
+                        return
+                    }
+
+                    self.role = role
+                    self.storedRole = role.rawValue
+                }
+            }
     }
 
     // MARK: - Anonymous
+
     func signInAnonymously() {
+
         Auth.auth().signInAnonymously { result, error in
             if let error {
                 print("❌ Anonymous sign-in failed:", error.localizedDescription)
@@ -53,24 +100,30 @@ final class AuthManager: ObservableObject {
     }
 
     // MARK: - Flow control
+
     func requireFullLogin() {
         allowAnonymousAuth = false
     }
 
     func allowAnonymousAgain() {
         allowAnonymousAuth = true
+
         if Auth.auth().currentUser == nil {
             signInAnonymously()
         }
     }
 
     // MARK: - Email Login
+
     func login(email: String, password: String, completion: @escaping (Bool) -> Void) {
+
         isLoading = true
         errorMessage = nil
 
         Auth.auth().signIn(withEmail: email, password: password) { _, error in
+
             DispatchQueue.main.async {
+
                 self.isLoading = false
 
                 if let error {
@@ -85,18 +138,23 @@ final class AuthManager: ObservableObject {
     }
 
     // MARK: - Email Register
+
     func signUp(email: String, password: String, completion: @escaping (Bool) -> Void) {
+
         isLoading = true
         errorMessage = nil
 
         if let user = Auth.auth().currentUser, user.isAnonymous {
+
             let credential = EmailAuthProvider.credential(
                 withEmail: email,
                 password: password
             )
 
             user.link(with: credential) { result, error in
+
                 DispatchQueue.main.async {
+
                     self.isLoading = false
 
                     if let error {
@@ -110,11 +168,14 @@ final class AuthManager: ObservableObject {
                     completion(true)
                 }
             }
+
             return
         }
 
         Auth.auth().createUser(withEmail: email, password: password) { result, error in
+
             DispatchQueue.main.async {
+
                 self.isLoading = false
 
                 if let error {
@@ -131,7 +192,9 @@ final class AuthManager: ObservableObject {
     }
 
     // MARK: - Google Sign In
+
     func signInWithGoogle() {
+
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let rootVC = windowScene.windows.first?.rootViewController else {
             print("❌ No root view controller")
@@ -147,7 +210,8 @@ final class AuthManager: ObservableObject {
         GIDSignIn.sharedInstance.configuration = config
 
         GIDSignIn.sharedInstance.signIn(withPresenting: rootVC) { result, error in
-            if let error = error {
+
+            if let error {
                 print("❌ Google sign-in error:", error.localizedDescription)
                 return
             }
@@ -164,7 +228,8 @@ final class AuthManager: ObservableObject {
             )
 
             Auth.auth().signIn(with: credential) { _, error in
-                if let error = error {
+
+                if let error {
                     print("❌ Firebase Google login failed:", error.localizedDescription)
                 } else {
                     print("✅ Google login success")
@@ -175,11 +240,14 @@ final class AuthManager: ObservableObject {
     }
 
     // MARK: - Role
+
     func setRole(_ role: UserRole) {
+
         self.role = role
         storedRole = role.rawValue
 
         NotificationCenter.default.post(name: .didSelectRole, object: nil)
+
         syncRoleToFirestore(role)
     }
 
@@ -189,7 +257,9 @@ final class AuthManager: ObservableObject {
     }
 
     // MARK: - Logout
+
     func logout() {
+
         clearRole()
 
         do {
@@ -203,12 +273,17 @@ final class AuthManager: ObservableObject {
         }
     }
 
-    // MARK: - Firestore sync
+    // MARK: - Firestore Sync
+
     private func syncRoleToFirestore(_ role: UserRole) {
+
         guard let uid = Auth.auth().currentUser?.uid else { return }
 
         db.collection("users")
             .document(uid)
-            .setData(["role": role.rawValue], merge: true)
+            .setData(
+                ["role": role.rawValue],
+                merge: true
+            )
     }
 }

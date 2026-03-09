@@ -1,148 +1,193 @@
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
-import FirebaseFirestoreSwift
 import FirebaseFunctions
+import FirebaseFirestoreSwift
 import StripePaymentSheet
 
 struct BookingSummaryView: View {
-
-    // MARK: - Inputs
+    
     let businessId: String
     let serviceId: String
     let staffId: String
+    let slotId: String
     let date: Date
     let time: Date
     let customerAddress: String?
-
+    
     @EnvironmentObject private var nav: NavigationState
-
-    // MARK: - Loaded data
+    
     @State private var service: BusinessService?
     @State private var staff: Staff?
     @State private var serviceArea: String = ""
-
-    // MARK: - UI State
+    
     @State private var isSubmitting = false
     @State private var errorMessage: String?
-
-    // MARK: - Stripe
+    
     @State private var paymentSheet: PaymentSheet?
-    @State private var paymentIntentId: String?
-
-    private let bookingService = BookingService()
+    @State private var bookingId: String?
+    
     private let functions = Functions.functions(region: "us-central1")
     private let db = Firestore.firestore()
-
+    
     var body: some View {
+        
         VStack(spacing: 24) {
-
+            
             Text("Booking Summary")
                 .font(.largeTitle.bold())
-
+                .foregroundColor(AppColors.charcoal)
+            
             if let service, let staff {
                 summaryView(service: service, staff: staff)
             } else {
                 ProgressView("Loading booking details…")
             }
-
+            
             if let errorMessage {
                 Text(errorMessage)
-                    .foregroundColor(.red)
+                    .foregroundColor(AppColors.error)
                     .multilineTextAlignment(.center)
             }
-
+            
             Button {
                 startPaymentFlow()
             } label: {
+                
                 if isSubmitting {
                     ProgressView()
                 } else {
-                    Text("Confirm booking")
+                    Text("Pay & confirm booking")
                         .frame(maxWidth: .infinity)
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .primaryButton()
             .disabled(isSubmitting || service == nil || staff == nil)
+            
+            Spacer()
         }
         .padding()
-        .navigationTitle("Summary")
-        .navigationBarTitleDisplayMode(.inline)
+        .background(AppColors.background.ignoresSafeArea())
         .onAppear(perform: loadData)
     }
-
-    // MARK: - Summary UI
-
+    
+    // MARK: Summary
+    
+    @ViewBuilder
     private func summaryView(service: BusinessService, staff: Staff) -> some View {
-        let enteredAddress = (customerAddress ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        let enteredAddress = (customerAddress ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
         let locationText = enteredAddress.isEmpty ? serviceArea : enteredAddress
-
-        return VStack(alignment: .leading, spacing: 12) {
+        
+        VStack(alignment: .leading, spacing: 12) {
+            
             row("Service", service.name)
             row("Staff", staff.name)
-
+            
             if !locationText.isEmpty {
                 row("Location", locationText)
             }
-
-            // service.price is stored in POUNDS (Double)
+            
             row("Price", String(format: "£%.2f", service.price))
-
             row("Duration", "\(service.durationMinutes) mins")
             row("Date", date.formatted(date: .long, time: .omitted))
             row("Time", time.formatted(date: .omitted, time: .shortened))
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.secondarySystemBackground))
+        )
     }
-
+    
     private func row(_ label: String, _ value: String) -> some View {
-        HStack {
+        
+        HStack(alignment: .top) {
+            
             Text(label)
+                .foregroundColor(AppColors.charcoal)
+            
             Spacer()
+            
             Text(value)
                 .foregroundColor(.secondary)
+                .multilineTextAlignment(.trailing)
         }
     }
-
-    // MARK: - Load Firestore Data
-
+    
+    // MARK: Load Data
+    
     private func loadData() {
+        
         db.collection("businesses")
             .document(businessId)
             .collection("services")
             .document(serviceId)
-            .getDocument { snapshot, _ in
-                self.service = try? snapshot?.data(as: BusinessService.self)
+            .getDocument { snap, error in
+                
+                if let error {
+                    print("❌ Failed loading service:", error.localizedDescription)
+                    return
+                }
+                
+                guard let snap else { return }
+                self.service = try? snap.data(as: BusinessService.self)
             }
-
+        
         db.collection("businesses")
             .document(businessId)
             .collection("staff")
             .document(staffId)
-            .getDocument { snapshot, _ in
-                self.staff = try? snapshot?.data(as: Staff.self)
+            .getDocument { snap, error in
+                
+                if let error {
+                    print("❌ Failed loading staff:", error.localizedDescription)
+                    return
+                }
+                
+                guard let snap else { return }
+                self.staff = try? snap.data(as: Staff.self)
             }
-
+        
         db.collection("businesses")
             .document(businessId)
-            .getDocument { snapshot, _ in
-                self.serviceArea = snapshot?.data()?["serviceArea"] as? String ?? ""
+            .getDocument { snap, error in
+                
+                if let error {
+                    print("❌ Failed loading business:", error.localizedDescription)
+                    return
+                }
+                
+                guard let snap else { return }
+                self.serviceArea = snap.data()?["serviceArea"] as? String ?? ""
             }
     }
-
-    // MARK: - Payment Flow
-
+    
+    // MARK: Payment Flow
+    
     private func startPaymentFlow() {
-        guard let service else { return }
-
-        errorMessage = nil
+        
+        guard let user = Auth.auth().currentUser else {
+            errorMessage = "Please wait… signing in"
+            return
+        }
+        
         isSubmitting = true
-
-        // Convert pounds -> pence for Stripe
-        let amountPence = Int((service.price * 100).rounded())
-
-        functions.httpsCallable("createPaymentIntent")
-            .call(["amount": amountPence]) { result, error in
-
+        errorMessage = nil
+        
+        functions.httpsCallable("createBookingPaymentIntent")
+            .call([
+                "businessId": businessId,
+                "staffId": staffId,
+                "serviceId": serviceId,
+                "slotId": slotId,
+                "customerName": user.displayName ?? "Customer",
+                "customerAddress": customerAddress ?? ""
+            ]) { result, error in
+                
                 if let error {
                     DispatchQueue.main.async {
                         self.errorMessage = error.localizedDescription
@@ -150,24 +195,25 @@ struct BookingSummaryView: View {
                     }
                     return
                 }
-
+                
                 guard
                     let data = result?.data as? [String: Any],
                     let clientSecret = data["clientSecret"] as? String,
-                    let intentId = data["paymentIntentId"] as? String
+                    let bookingId = data["bookingId"] as? String
                 else {
                     DispatchQueue.main.async {
-                        self.errorMessage = "Payment setup failed."
+                        self.errorMessage = "Payment setup failed"
                         self.isSubmitting = false
                     }
                     return
                 }
-
+                
+                self.bookingId = bookingId
+                
                 var config = PaymentSheet.Configuration()
                 config.merchantDisplayName = "LocalLink"
-
+                
                 DispatchQueue.main.async {
-                    self.paymentIntentId = intentId
                     self.paymentSheet = PaymentSheet(
                         paymentIntentClientSecret: clientSecret,
                         configuration: config
@@ -176,104 +222,107 @@ struct BookingSummaryView: View {
                 }
             }
     }
-
+    
+    // MARK: Present Stripe
+    
     private func presentPaymentSheet() {
-        guard let paymentSheet else {
-            self.isSubmitting = false
-            return
-        }
-
+        
+        guard let paymentSheet else { return }
+        
         guard let vc = UIApplication.shared.topMostViewController() else {
-            self.errorMessage = "Unable to present payment sheet."
+            self.errorMessage = "Unable to present payment sheet"
             self.isSubmitting = false
             return
         }
-
+        
         paymentSheet.present(from: vc) { result in
-            DispatchQueue.main.async {
-                switch result {
-                case .completed:
-                    self.confirmBooking()
-
-                case .failed(let error):
+            
+            switch result {
+                
+            case .completed:
+                
+                DispatchQueue.main.async {
+                    self.listenForBookingConfirmation()
+                }
+                
+            case .failed(let error):
+                
+                DispatchQueue.main.async {
                     self.errorMessage = error.localizedDescription
                     self.isSubmitting = false
-
-                case .canceled:
+                }
+                
+            case .canceled:
+                
+                DispatchQueue.main.async {
                     self.isSubmitting = false
                 }
             }
         }
     }
-
-    // MARK: - Confirm Booking (after payment success)
-
-    private func confirmBooking() {
-        guard
-            let service,
-            let staff,
-            let user = Auth.auth().currentUser
-        else {
-            self.errorMessage = "Missing booking details."
-            self.isSubmitting = false
-            return
-        }
-
-        let endTime = Calendar.current.date(byAdding: .minute, value: service.durationMinutes, to: time) ?? time
-
-        let name = (user.displayName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let safeName = name.isEmpty ? "Customer" : name
-
-        let enteredAddress = (customerAddress ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let safeAddress = enteredAddress.isEmpty ? (serviceArea.isEmpty ? "Not Provided" : serviceArea) : enteredAddress
-
-        bookingService.confirmBooking(
-            businessId: businessId,
-            customerId: user.uid,
-            customerName: safeName,
-            customerAddress: safeAddress,
-            service: service,
-            staff: staff,
-            date: date,
-            startTime: time,
-            endTime: endTime,
-            paymentIntentId: paymentIntentId
-        ) { result in
-            DispatchQueue.main.async {
-                self.isSubmitting = false
-                switch result {
-                case .success:
-                    self.nav.path.append(.bookingSuccess(businessId: businessId))
-                case .failure(let error):
-                    self.errorMessage = error.localizedDescription
+    
+    // MARK: Wait for Webhook Confirmation
+    
+    private func listenForBookingConfirmation() {
+        
+        guard let bookingId else { return }
+        
+        db.collection("bookings")
+            .document(bookingId)
+            .addSnapshotListener { snap, error in
+                
+                guard let data = snap?.data() else { return }
+                
+                let status = data["status"] as? String ?? ""
+                
+                if status == "confirmed" {
+                    
+                    DispatchQueue.main.async {
+                        
+                        self.isSubmitting = false
+                        
+                        self.nav.path.append(
+                            .bookingSuccess(
+                                businessId: self.businessId,
+                                bookingId: bookingId
+                            )
+                        )
+                    }
                 }
             }
-        }
     }
 }
 
-// MARK: - Top-most view controller helper (safe PaymentSheet present)
+// MARK: UIKit Helper
 
 private extension UIApplication {
+    
     func topMostViewController(base: UIViewController? = nil) -> UIViewController? {
+        
         let baseVC: UIViewController? = {
+            
             if let base { return base }
+            
             return connectedScenes
                 .compactMap { $0 as? UIWindowScene }
                 .flatMap { $0.windows }
                 .first(where: { $0.isKeyWindow })?
                 .rootViewController
         }()
-
+        
         if let nav = baseVC as? UINavigationController {
             return topMostViewController(base: nav.visibleViewController)
         }
-        if let tab = baseVC as? UITabBarController, let selected = tab.selectedViewController {
+        
+        if let tab = baseVC as? UITabBarController,
+           let selected = tab.selectedViewController {
             return topMostViewController(base: selected)
         }
+        
         if let presented = baseVC?.presentedViewController {
             return topMostViewController(base: presented)
         }
+        
         return baseVC
     }
 }

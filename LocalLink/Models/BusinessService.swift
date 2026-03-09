@@ -1,7 +1,7 @@
 import Foundation
 import FirebaseFirestoreSwift
 
-struct BusinessService: Identifiable, Codable {
+struct BusinessService: Identifiable, Codable, Hashable {
 
     @DocumentID var id: String?
 

@@ -1,201 +1,98 @@
 import Foundation
 import FirebaseFirestore
+import FirebaseFirestoreSwift
 
 final class AvailabilityHorizonService {
 
     private let db = Firestore.firestore()
     private let calendar = Calendar.current
 
-    /// Ensures availability exists for this staff member up to today + horizonDays.
-    @discardableResult
     func ensureHorizon(
         businessId: String,
         staffId: String,
-        horizonDays: Int = 14
-    ) async -> Date {
+        horizonDays: Int = 90
+    ) async throws {
+
+        guard horizonDays > 0 else { return }
+
+        let staffRef = db
+            .collection("businesses")
+            .document(businessId)
+            .collection("staff")
+            .document(staffId)
+
+        let metaRef = staffRef.collection("meta").document("availability")
+        let metaSnap = try await metaRef.getDocument()
 
         let today = calendar.startOfDay(for: Date())
-        guard let targetEnd = calendar.date(byAdding: .day, value: horizonDays, to: today) else {
-            return today
+
+        let generatedUntil =
+            (metaSnap.data()?["generatedUntil"] as? Timestamp)?.dateValue()
+            ?? today
+
+        guard let target = calendar.date(byAdding: .day, value: horizonDays, to: today) else {
+            return
         }
 
-        // Load weekly template from subcollection (SOURCE OF TRUTH)
-        let weeklyTemplate = await loadWeeklyTemplate(
-            businessId: businessId,
-            staffId: staffId
-        )
+        if generatedUntil >= target { return }
 
-        if weeklyTemplate.isEmpty {
-            return calendar.date(byAdding: .day, value: -1, to: today) ?? today
-        }
+        var day = calendar.startOfDay(for: max(generatedUntil, today))
 
-        let latest = await fetchLatestGeneratedDate(
-            businessId: businessId,
-            staffId: staffId
-        )
+        // Fetch weekly template once
+        let weekSnap = try await staffRef.collection("weeklyAvailability").getDocuments()
+        var weekly: [String: [String: Any]] = [:]
+        weekSnap.documents.forEach { weekly[$0.documentID.lowercased()] = $0.data() }
 
-        let startFrom = max(
-            calendar.date(byAdding: .day, value: 1, to: latest ?? today) ?? today,
-            today
-        )
+        // Generate day-by-day
+        while day < target {
 
-        await generateMissingDays(
-            businessId: businessId,
-            staffId: staffId,
-            weeklyTemplate: weeklyTemplate,
-            startDate: startFrom,
-            endDate: targetEnd
-        )
-
-        return await fetchLatestGeneratedDate(
-            businessId: businessId,
-            staffId: staffId
-        ) ?? today
-    }
-
-    // MARK: - Weekly template
-
-    private struct DayTemplate {
-        let open: String
-        let close: String
-        let closed: Bool
-    }
-
-    private func loadWeeklyTemplate(
-        businessId: String,
-        staffId: String
-    ) async -> [String: DayTemplate] {
-
-        do {
-            let snap = try await db
-                .collection("businesses")
-                .document(businessId)
-                .collection("staff")
-                .document(staffId)
-                .collection("weeklyAvailability")
-                .getDocuments()
-
-            var out: [String: DayTemplate] = [:]
-
-            for doc in snap.documents {
-                let data = doc.data()
-                let open = data["open"] as? String ?? ""
-                let close = data["close"] as? String ?? ""
-                let closed = data["closed"] as? Bool ?? true
-
-                out[doc.documentID.lowercased()] = DayTemplate(
-                    open: open,
-                    close: close,
-                    closed: closed
-                )
-            }
-
-            return out
-        } catch {
-            print("❌ loadWeeklyTemplate error:", error)
-            return [:]
-        }
-    }
-
-    // MARK: - Latest generated date
-
-    private func fetchLatestGeneratedDate(
-        businessId: String,
-        staffId: String
-    ) async -> Date? {
-
-        do {
-            let snap = try await db
-                .collection("businesses")
-                .document(businessId)
-                .collection("staff")
-                .document(staffId)
-                .collection("availability")
-                .order(by: "date", descending: true)
-                .limit(to: 1)
-                .getDocuments()
+            let weekdayKey = day.weekdayKey // ✅ your extension returns "monday"...
 
             guard
-                let doc = snap.documents.first,
-                let ts = doc.data()["date"] as? Timestamp
-            else { return nil }
-
-            return calendar.startOfDay(for: ts.dateValue())
-        } catch {
-            print("❌ fetchLatestGeneratedDate error:", error)
-            return nil
-        }
-    }
-
-    // MARK: - Generate (append-only)
-
-    private func generateMissingDays(
-        businessId: String,
-        staffId: String,
-        weeklyTemplate: [String: DayTemplate],
-        startDate: Date,
-        endDate: Date
-    ) async {
-
-        var cursor = calendar.startOfDay(for: startDate)
-        let end = calendar.startOfDay(for: endDate)
-
-        while cursor <= end {
-
-            let key = cursor.weekdayKey
-
-            if let template = weeklyTemplate[key],
-               template.closed == false,
-               !template.open.isEmpty,
-               !template.close.isEmpty {
-
-                guard
-                    let startDT = makeDate(on: cursor, timeHHmm: template.open),
-                    let endDT = makeDate(on: cursor, timeHHmm: template.close),
-                    endDT > startDT
-                else {
-                    cursor = calendar.date(byAdding: .day, value: 1, to: cursor)!
-                    continue
-                }
-
-                let ref = db
-                    .collection("businesses")
-                    .document(businessId)
-                    .collection("staff")
-                    .document(staffId)
-                    .collection("availability")
-                    .document(cursor.dateId())
-
-                do {
-                    let existing = try await ref.getDocument()
-                    if !existing.exists {
-                        try await ref.setData([
-                            "date": Timestamp(date: cursor),
-                            "startTime": Timestamp(date: startDT),
-                            "endTime": Timestamp(date: endDT),
-                            "generatedAt": FieldValue.serverTimestamp()
-                        ])
-                    }
-                } catch {
-                    print("❌ generateMissingDays error:", error)
-                }
+                let config = weekly[weekdayKey],
+                (config["closed"] as? Bool) == false,
+                let openStr = config["open"] as? String,
+                let closeStr = config["close"] as? String,
+                let startTime = makeDate(on: day, timeHHmm: openStr),
+                let endTime = makeDate(on: day, timeHHmm: closeStr),
+                endTime > startTime
+            else {
+                day = calendar.date(byAdding: .day, value: 1, to: day)!
+                continue
             }
 
-            cursor = calendar.date(byAdding: .day, value: 1, to: cursor)!
-        }
-    }
+            // Write availability (single doc)
+            let availRef = staffRef.collection("availability").document(day.dayId())
+            try await availRef.setData([
+                "date": Timestamp(date: day),
+                "startTime": Timestamp(date: startTime),
+                "endTime": Timestamp(date: endTime),
+                "generatedAt": FieldValue.serverTimestamp()
+            ], merge: true)
 
-    // MARK: - Helpers
+            // Generate slots using YOUR generator (but optimized inside)
+            try await SlotGenerator().generateSlotsForDay(
+                businessId: businessId,
+                staffId: staffId,
+                date: day,
+                startTime: startTime,
+                endTime: endTime
+            )
+
+            day = calendar.date(byAdding: .day, value: 1, to: day)!
+        }
+
+        try await metaRef.setData([
+            "generatedUntil": Timestamp(date: target),
+            "updatedAt": FieldValue.serverTimestamp()
+        ], merge: true)
+    }
 
     private func makeDate(on day: Date, timeHHmm: String) -> Date? {
+        guard TimeHHmm.isValid(timeHHmm) else { return nil }
         let parts = timeHHmm.split(separator: ":")
-        guard
-            parts.count == 2,
-            let hour = Int(parts[0]),
-            let minute = Int(parts[1])
-        else { return nil }
-
-        return calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day)
+        let h = Int(parts[0])!
+        let m = Int(parts[1])!
+        return calendar.date(bySettingHour: h, minute: m, second: 0, of: day)
     }
 }
-

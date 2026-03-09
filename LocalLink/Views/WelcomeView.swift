@@ -104,7 +104,7 @@ struct WelcomeView: View {
             // Guest
             Button {
                 authManager.signInAnonymously()
-                nav.path.append(.startSelection)
+              
             } label: {
                 fullWidthButton(
                     title: "Continue as guest",

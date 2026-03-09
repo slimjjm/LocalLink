@@ -11,13 +11,14 @@ struct BookingDateSelectorView: View {
     @State private var selectedDate: Date = Date()
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 28) {
 
             Text("Choose a date")
                 .font(.largeTitle.bold())
+                .foregroundColor(AppColors.charcoal)
 
             DatePicker(
-                "Select a date",
+                "Select appointment date",
                 selection: $selectedDate,
                 in: Date()...,
                 displayedComponents: .date
@@ -34,11 +35,12 @@ struct BookingDateSelectorView: View {
             } label: {
                 Text("Next")
             }
-            .buttonStyle(.borderedProminent)
+            .primaryButton()
 
             Spacer()
         }
         .padding()
+        .background(AppColors.background)
         .navigationTitle("Date")
         .navigationBarTitleDisplayMode(.inline)
     }

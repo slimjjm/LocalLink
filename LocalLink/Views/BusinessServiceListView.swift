@@ -26,11 +26,12 @@ struct BusinessServiceListView: View {
             // Error
             else if let errorMessage {
                 VStack(spacing: 12) {
+
                     Text("Couldn’t load services")
                         .font(.headline)
 
                     Text(errorMessage)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(AppColors.error)
                         .multilineTextAlignment(.center)
                 }
                 .padding()
@@ -39,6 +40,7 @@ struct BusinessServiceListView: View {
             // Empty state
             else if services.isEmpty {
                 VStack(spacing: 16) {
+
                     ContentUnavailableView(
                         "No services yet",
                         systemImage: "scissors",
@@ -50,7 +52,7 @@ struct BusinessServiceListView: View {
                     Button("Add Service") {
                         showAddService = true
                     }
-                    .buttonStyle(.borderedProminent)
+                    .primaryButton()
                 }
                 .padding()
             }
@@ -58,44 +60,59 @@ struct BusinessServiceListView: View {
             // Services list
             else {
                 List {
+
                     ForEach(services) { service in
+
                         NavigationLink {
                             ServiceFormView(
                                 businessId: businessId,
                                 existingService: service
                             )
                         } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(service.name)
-                                    .font(.headline)
 
-                                Text(
-                                    "£\(service.price, specifier: "%.2f") • \(service.durationMinutes) mins"
-                                )
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                            HStack {
+
+                                VStack(alignment: .leading, spacing: 8) {
+
+                                    Text(service.name)
+                                        .font(.headline.weight(.semibold))
+                                        .foregroundColor(AppColors.charcoal)
+
+                                    Text(
+                                        "£\(service.price, specifier: "%.2f") • \(service.durationMinutes) mins"
+                                    )
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                }
+
+                                Spacer()
                             }
-                            .padding(.vertical, 4)
+                            .padding(.vertical, 8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())   // ✅ Makes whole row tappable
                         }
                     }
                 }
                 .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(AppColors.background)
             }
         }
         .navigationTitle("Services")
 
-        // ✅ PLUS BUTTON NOW WORKS
+        // Toolbar
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     showAddService = true
                 } label: {
                     Image(systemName: "plus")
+                        .foregroundColor(AppColors.primary)
                 }
             }
         }
 
-        // ✅ THIS WAS MISSING
+        // Add Service Navigation
         .navigationDestination(isPresented: $showAddService) {
             ServiceFormView(
                 businessId: businessId,
@@ -113,7 +130,9 @@ struct BusinessServiceListView: View {
     }
 
     // MARK: - Firestore Listener
+
     private func startListening() {
+
         isLoading = true
         errorMessage = nil
 
@@ -140,4 +159,3 @@ struct BusinessServiceListView: View {
             }
     }
 }
-

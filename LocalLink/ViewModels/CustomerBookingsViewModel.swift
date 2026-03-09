@@ -1,5 +1,6 @@
 import Foundation
 import FirebaseFirestore
+import FirebaseFirestoreSwift
 import FirebaseAuth
 
 @MainActor
@@ -11,9 +12,9 @@ final class CustomerBookingsViewModel: ObservableObject {
     @Published var errorMessage: String?
     
     private let db = Firestore.firestore()
-    
     func loadBookings() {
-        guard let customerId = Auth.auth().currentUser?.uid else {
+        
+        guard let uid = Auth.auth().currentUser?.uid else {
             errorMessage = "Not logged in"
             return
         }
@@ -22,42 +23,46 @@ final class CustomerBookingsViewModel: ObservableObject {
         errorMessage = nil
         
         db.collection("bookings")
-            .whereField("customerId", isEqualTo: customerId)
-            .order(by: "startDate", descending: false)
+            .whereField("customerId", isEqualTo: uid)
+            .order(by: "startDate")
             .getDocuments { [weak self] snapshot, error in
                 
+                guard let self else { return }
+                
                 DispatchQueue.main.async {
-                    self?.isLoading = false
+                    self.isLoading = false
                     
                     if let error {
-                        self?.errorMessage = error.localizedDescription
+                        print("❌ BOOKINGS ERROR:", error.localizedDescription)
+                        self.errorMessage = error.localizedDescription
                         return
                     }
                     
+                    // ✅ DECODE ONCE
                     let bookings = snapshot?.documents.compactMap {
                         try? $0.data(as: Booking.self)
                     } ?? []
                     
+                    // 🔥 DEBUG PRINT WHAT FIRESTORE ACTUALLY RETURNED
+                    for b in bookings {
+                        print("🔥 FIRESTORE STATUS:", b.status)
+                    }
+                    
                     let now = Date()
                     
-                    // UPCOMING = confirmed AND not yet ended
-                    self?.upcoming = bookings
+                    // TEMPORARY – DO NOT FILTER BY STATUS YET
+                    self.upcoming = bookings
                         .filter {
-                            $0.status == .confirmed &&
                             $0.endDate >= now
                         }
                         .sorted { $0.startDate < $1.startDate }
                     
-                    // PAST = explicitly completed / refunded / cancelled
-                    self?.past = bookings
+                    self.past = bookings
                         .filter {
-                            $0.status == .completed ||
-                            $0.status == .refunded ||
-                            $0.status == .cancelledByBusiness
+                            $0.endDate < now
                         }
                         .sorted { $0.startDate > $1.startDate }
                 }
             }
     }
 }
-

@@ -2,6 +2,7 @@ import SwiftUI
 import FirebaseCore
 import GoogleSignIn
 import Stripe
+import StripePayments
 
 @main
 struct LocalLinkApp: App {

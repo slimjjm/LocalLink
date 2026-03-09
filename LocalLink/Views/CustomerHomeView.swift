@@ -2,12 +2,43 @@ import SwiftUI
 
 struct CustomerHomeView: View {
 
+    @EnvironmentObject private var authManager: AuthManager
+
     @EnvironmentObject private var nav: NavigationState
+    @StateObject private var unreadVM = ChatUnreadViewModel()
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 28) {
+            VStack(spacing: 24) {
+
                 headerSection
+
+                // 🔔 UNREAD BANNER (Tappable)
+                if unreadVM.totalUnread > 0 {
+                    NavigationLink {
+                        CustomerBookingsView()
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "message.fill")
+
+                            Text("You have \(unreadVM.totalUnread) unread message\(unreadVM.totalUnread > 1 ? "s" : "")")
+                                .lineLimit(2)
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                        }
+                        .font(.footnote.weight(.semibold))
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(AppColors.primary.opacity(0.15))
+                        .foregroundColor(AppColors.primary)
+                        .cornerRadius(12)
+                    }
+                    .buttonStyle(.plain)
+                }
+
                 primaryAction
                 secondaryActions
                 settingsLink
@@ -16,23 +47,32 @@ struct CustomerHomeView: View {
             }
             .padding()
         }
-        .background(Color(.systemGroupedBackground))
+        .background(AppColors.background)
         .navigationTitle("LocalLink")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Change role") {
+                    authManager.clearRole()
                     nav.reset()
-                    nav.path.append(.startSelection)
                 }
             }
         }
+        .onAppear {
+            unreadVM.startListening(role: "customer")
+        }
+        .onDisappear {
+            unreadVM.stopListening()
+        }
     }
+
+    // MARK: - Header
 
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Book local services")
                 .font(.largeTitle.bold())
+                .foregroundColor(AppColors.charcoal)
 
             Text("Find trusted businesses near you and book instantly.")
                 .foregroundColor(.secondary)
@@ -42,9 +82,10 @@ struct CustomerHomeView: View {
 
     private var primaryAction: some View {
         NavigationLink {
-            BusinessListView()
+            CustomerBusinessSearchView()
         } label: {
             VStack(alignment: .leading, spacing: 14) {
+
                 HStack {
                     Image(systemName: "magnifyingglass")
                         .font(.title2)
@@ -56,7 +97,7 @@ struct CustomerHomeView: View {
                 Text("Find a business")
                     .font(.title3.bold())
 
-                Text("Browse trusted local services and book instantly")
+                Text("Search by category and town to book instantly")
                     .font(.subheadline)
                     .foregroundColor(.white.opacity(0.85))
             }
@@ -65,8 +106,8 @@ struct CustomerHomeView: View {
             .background(
                 LinearGradient(
                     colors: [
-                        Color.accentColor,
-                        Color.accentColor.opacity(0.85)
+                        AppColors.primary,
+                        AppColors.primary.opacity(0.85)
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
@@ -97,13 +138,16 @@ struct CustomerHomeView: View {
             Image(systemName: icon)
                 .font(.title3)
                 .frame(width: 44, height: 44)
-                .background(Color.accentColor.opacity(0.15))
-                .foregroundColor(.accentColor)
+                .background(AppColors.primary.opacity(0.15))
+                .foregroundColor(AppColors.primary)
                 .cornerRadius(12)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.headline)
-                Text(subtitle).font(.caption).foregroundColor(.secondary)
+                Text(title)
+                    .font(.headline)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
 
             Spacer()
@@ -124,21 +168,21 @@ struct CustomerHomeView: View {
                 Text("Settings")
                 Spacer()
                 Image(systemName: "chevron.right")
-                    .font(.footnote)
                     .foregroundColor(.secondary)
             }
             .padding()
-            .background(Color(.secondarySystemBackground))
+            .background(Color.white)
+            .shadow(color: .black.opacity(0.05), radius: 5, y: 2)
             .cornerRadius(16)
         }
     }
 
     private var switchRoleButton: some View {
-        Button {
+        Button(action: {
             nav.reset()
-            nav.path.append(.startSelection)
-        } label: {
+        }) {
             HStack(spacing: 14) {
+
                 Image(systemName: "arrow.uturn.backward.circle.fill")
                     .font(.title2)
                     .foregroundColor(.orange)
@@ -158,10 +202,6 @@ struct CustomerHomeView: View {
             .background(
                 RoundedRectangle(cornerRadius: 18)
                     .fill(Color(.secondarySystemBackground))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18)
-                            .stroke(Color.orange.opacity(0.35))
-                    )
             )
         }
     }
