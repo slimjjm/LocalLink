@@ -155,7 +155,7 @@ struct SlotGenerator {
             }
             if overlaps { continue }
 
-            let slotId = Self.isoFormatter.string(from: slotStart)
+            let slotId = SlotID.make(from: slotStart)
 
             let ref = slotCollection.document(slotId)
 

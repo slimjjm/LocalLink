@@ -51,6 +51,7 @@
 				Models/BookingSlot.swift,
 				Models/StaffMember.swift,
 				Services/StoreKitManager.swift,
+				Services/Untitled.swift,
 				Services/WeeklyAvailbilityRepository.swift,
 				Utilities/BookingAvailabilityValidator.swift,
 				Views/AddServiceView.swift,

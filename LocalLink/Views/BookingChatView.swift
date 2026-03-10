@@ -1,6 +1,7 @@
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseFirestoreSwift
 
 struct BookingChatView: View {
 
@@ -22,11 +23,14 @@ struct BookingChatView: View {
 
             ScrollViewReader { proxy in
                 ScrollView {
+
                     LazyVStack(alignment: .leading, spacing: 10) {
+
                         ForEach(messages) { message in
                             messageBubble(message)
                                 .id(message.id)
                         }
+
                     }
                     .padding()
                 }
@@ -37,18 +41,10 @@ struct BookingChatView: View {
                 }
             }
 
-            HStack {
-                TextField("Message…", text: $newMessage)
-                    .textFieldStyle(.roundedBorder)
-
-                Button("Send") {
-                    send()
-                }
-                .disabled(newMessage.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            .padding()
+            messageInputBar
         }
         .navigationTitle("Chat")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             startListening()
             resetUnreadCounter()
@@ -58,6 +54,24 @@ struct BookingChatView: View {
         }
     }
 
+    // MARK: - Input Bar
+
+    private var messageInputBar: some View {
+
+        HStack {
+
+            TextField("Message…", text: $newMessage)
+                .textFieldStyle(.roundedBorder)
+
+            Button("Send") {
+                send()
+            }
+            .disabled(newMessage.trimmingCharacters(in: .whitespaces).isEmpty)
+
+        }
+        .padding()
+    }
+
     // MARK: - Message Bubble
 
     private func messageBubble(_ message: BookingMessage) -> some View {
@@ -65,6 +79,7 @@ struct BookingChatView: View {
         let isMe = message.senderId == Auth.auth().currentUser?.uid
 
         return HStack {
+
             if isMe { Spacer() }
 
             Text(message.text)
@@ -96,16 +111,29 @@ struct BookingChatView: View {
     }
 
     private func stopListening() {
+
         listener?.remove()
         listener = nil
     }
 
-    // MARK: - Send
+    // MARK: - Send Message
 
     private func send() {
 
         let trimmed = newMessage.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
+
+        guard !trimmed.isEmpty, trimmed.count <= 2000 else { return }
+
+        // Instant local message for smoother UX
+        let tempMessage = BookingMessage(
+            id: UUID().uuidString,
+            senderId: Auth.auth().currentUser?.uid ?? "",
+            senderRole: currentUserRole,
+            text: trimmed,
+            createdAt: Date()
+        )
+
+        messages.append(tempMessage)
 
         repo.sendMessage(
             bookingId: bookingId,
@@ -114,22 +142,35 @@ struct BookingChatView: View {
             text: trimmed,
             senderRole: currentUserRole
         ) { result in
-            if case .success = result {
+
+            switch result {
+
+            case .success:
                 newMessage = ""
+
+            case .failure(let error):
+                print("Chat send error:", error)
             }
         }
     }
 
-    // MARK: - Reset Unread
+    // MARK: - Reset Unread Counter
 
     private func resetUnreadCounter() {
 
         let bookingRef = db.collection("bookings").document(bookingId)
 
         if currentUserRole == "customer" {
-            bookingRef.updateData(["unreadForCustomer": 0])
+
+            bookingRef.updateData([
+                "unreadForCustomer": 0
+            ])
+
         } else {
-            bookingRef.updateData(["unreadForBusiness": 0])
+
+            bookingRef.updateData([
+                "unreadForBusiness": 0
+            ])
         }
     }
 }

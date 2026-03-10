@@ -39,8 +39,12 @@ struct BusinessQuickBookingView: View {
                     TextField("Address", text: $customerAddress)
                 }
 
-                Section("Service") {
+                Section("Staff") {
+                    Text("Staff ID: \(staffId)")
+                        .foregroundColor(.secondary)
+                }
 
+                Section("Service") {
                     if services.isEmpty {
                         Text("No services yet")
                             .foregroundColor(.secondary)
@@ -55,8 +59,10 @@ struct BusinessQuickBookingView: View {
                 }
 
                 Section("Time") {
-                    Text("\(startTime.formatted(date: .abbreviated, time: .shortened)) → \(endTime.formatted(date: .omitted, time: .shortened))")
-                        .foregroundColor(.secondary)
+                    Text(
+                        "\(startTime.formatted(date: .abbreviated, time: .shortened)) → \(endTime.formatted(date: .omitted, time: .shortened))"
+                    )
+                    .foregroundColor(.secondary)
                 }
 
                 Section {
@@ -69,7 +75,12 @@ struct BusinessQuickBookingView: View {
                             Text("Create booking")
                         }
                     }
-                    .disabled(isSaving || services.isEmpty || selectedServiceId == nil || customerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(
+                        isSaving ||
+                        services.isEmpty ||
+                        selectedServiceId == nil ||
+                        customerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    )
                 }
             }
             .navigationTitle("New booking")
@@ -91,37 +102,32 @@ struct BusinessQuickBookingView: View {
 
         errorMessage = nil
 
-        guard
-            let serviceId = selectedServiceId,
-            let service = services.first(where: { $0.id == serviceId })
-        else {
+        guard let serviceId = selectedServiceId,
+              let service = services.first(where: { $0.id == serviceId }) else {
             errorMessage = "Please select a service."
+            return
+        }
+
+        guard !staffId.isEmpty else {
+            errorMessage = "Missing staff id."
             return
         }
 
         isSaving = true
 
-        // NOTE: This uses your existing BookingService signature (NO `source:` param).
         bookingService.confirmBooking(
             businessId: businessId,
             customerId: "manual",
-            customerName: customerName,
-            customerAddress: customerAddress,
+            customerName: customerName.trimmingCharacters(in: .whitespacesAndNewlines),
+            customerAddress: customerAddress.trimmingCharacters(in: .whitespacesAndNewlines),
             service: service,
-            staff: Staff(
-                id: staffId,
-                name: "",
-                serviceIds: nil,
-                skills: nil,
-                isActive: true,
-                createdAt: Date(),
-                seatRank: nil
-            ),
+            staffId: staffId,
             date: startTime,
             startTime: startTime,
             endTime: endTime,
-            paymentIntentId: nil
-        ){ result in
+            paymentIntentId: nil,
+            source: "manual"
+        ) { result in
 
             DispatchQueue.main.async {
                 isSaving = false

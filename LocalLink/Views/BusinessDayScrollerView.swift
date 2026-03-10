@@ -5,17 +5,22 @@ struct BusinessDayScrollerView: View {
     let businessId: String
     @ObservedObject var viewModel: BusinessBookingsViewModel
 
-    // Freeze reference today once per view lifecycle
     @State private var referenceToday = Date().localMidnight()
     @State private var selectedDay: Date = Date().localMidnight()
 
     private var dayLabel: String {
+
+        if Calendar.current.isDate(selectedDay, inSameDayAs: referenceToday) {
+            return "Today"
+        }
+
         let f = DateFormatter()
         f.dateFormat = "EEEE d MMM"
         return f.string(from: selectedDay)
     }
 
     private var selectedDayBookings: [Booking] {
+
         viewModel.upcoming
             .filter {
                 let day = $0.bookingDay ?? $0.startDate.localMidnight()
@@ -24,11 +29,29 @@ struct BusinessDayScrollerView: View {
             .sorted { $0.startDate < $1.startDate }
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private var bookingSummary: String {
 
-            // Header: left/right + date label
+        let count = selectedDayBookings.count
+
+        if count == 0 {
+            return "No bookings today"
+        }
+
+        if count == 1 {
+            return "1 booking today"
+        }
+
+        return "\(count) bookings today"
+    }
+
+    var body: some View {
+
+        VStack(alignment: .leading, spacing: 14) {
+
+            // Header
+
             HStack {
+
                 Button {
                     moveDay(-1)
                 } label: {
@@ -51,19 +74,31 @@ struct BusinessDayScrollerView: View {
                 }
             }
 
-            // Content
-            if viewModel.isLoading {
-                ProgressView("Loading…")
-                    .frame(maxWidth: .infinity, alignment: .center)
-            } else if selectedDayBookings.isEmpty {
-                Text("No jobs")
+            // Summary line
+
+            if !viewModel.isLoading {
+                Text(bookingSummary)
                     .font(.subheadline)
                     .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 6)
+            }
+
+            // Content
+
+            if viewModel.isLoading {
+
+                ProgressView("Loading…")
+                    .frame(maxWidth: .infinity)
+
+            } else if selectedDayBookings.isEmpty {
+
+                EmptyView()
+
             } else {
+
                 VStack(spacing: 10) {
+
                     ForEach(selectedDayBookings) { booking in
+
                         BusinessBookingRowView(
                             booking: booking,
                             onCancelled: {
@@ -75,16 +110,20 @@ struct BusinessDayScrollerView: View {
             }
         }
         .padding()
-        .background(.ultraThinMaterial)
-        .cornerRadius(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.white)
+        )
+        .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
         .onAppear {
-            // keep selected day stable and aligned
+
             referenceToday = Date().localMidnight()
             selectedDay = referenceToday
         }
     }
 
     private func moveDay(_ delta: Int) {
+
         if let newDay = Calendar.current.date(byAdding: .day, value: delta, to: selectedDay) {
             selectedDay = newDay.localMidnight()
         }

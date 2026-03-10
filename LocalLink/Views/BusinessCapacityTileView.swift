@@ -4,17 +4,14 @@ struct BusinessCapacityTileView: View {
 
     @ObservedObject var viewModel: BusinessBookingsViewModel
 
-    private var percent: Int {
+    // % of slots already booked
+    private var percentFilled: Int {
         Int(viewModel.percentMonthFilled.rounded())
     }
 
-    private var maxPossibleGBP: String {
-        String(format: "£%.0f", Double(viewModel.maxPossibleThisMonth) / 100)
-    }
-
-    private var remainingGBP: String {
-        let remaining = viewModel.maxPossibleThisMonth - viewModel.monthlyRevenueEarned
-        return String(format: "£%.0f", Double(max(0, remaining)) / 100)
+    // remaining availability
+    private var remainingPercent: Int {
+        max(0, 100 - percentFilled)
     }
 
     var body: some View {
@@ -22,30 +19,35 @@ struct BusinessCapacityTileView: View {
         VStack(alignment: .leading, spacing: 14) {
 
             HStack {
+
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("% Month Filled")
+
+                    Text("Calendar Fill")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    Text("\(percent)%")
+                    Text("\(percentFilled)%")
                         .font(.title.bold())
                 }
 
                 Spacer()
-
-                ProgressView(value: viewModel.percentMonthFilled, total: 100)
-                    .progressViewStyle(.linear)
-                    .frame(width: 120)
             }
+
+            ProgressView(value: viewModel.percentMonthFilled, total: 100)
+                .tint(AppColors.primary)
+                .scaleEffect(x: 1, y: 1.6, anchor: .center)
 
             Divider()
 
-            Text("Capacity Remaining")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
 
-            Text("\(remainingGBP) of \(maxPossibleGBP) possible this month")
-                .font(.subheadline.weight(.semibold))
+                Text("Availability")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Text("\(remainingPercent)% of booking slots still available this month")
+                    .font(.subheadline.weight(.semibold))
+            }
         }
         .padding()
         .background(

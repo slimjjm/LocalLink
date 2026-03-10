@@ -6,9 +6,13 @@ struct CustomerBookingsView: View {
     @EnvironmentObject private var nav: NavigationState
     
     var body: some View {
+        
         List {
             
+            // MARK: Loading
+            
             if viewModel.isLoading {
+                
                 HStack {
                     Spacer()
                     ProgressView("Loading bookings…")
@@ -16,25 +20,39 @@ struct CustomerBookingsView: View {
                 }
             }
             
+            // MARK: Error
+            
             if let error = viewModel.errorMessage {
+                
                 Text(error)
-                .foregroundColor(AppColors.error)            }
+                    .foregroundColor(AppColors.error)
+            }
+            
+            // MARK: Upcoming
             
             if !viewModel.upcoming.isEmpty {
-                Section("Upcoming bookings"){
+                
+                Section("Upcoming bookings") {
+                    
                     ForEach(viewModel.upcoming) { booking in
                         bookingRow(booking)
                     }
                 }
             }
             
+            // MARK: Past
+            
             if !viewModel.past.isEmpty {
+                
                 Section("Past bookings") {
+                    
                     ForEach(viewModel.past) { booking in
                         bookingRow(booking)
                     }
                 }
             }
+            
+            // MARK: Empty
             
             if !viewModel.isLoading &&
                 viewModel.upcoming.isEmpty &&
@@ -45,8 +63,8 @@ struct CustomerBookingsView: View {
                     systemImage: "calendar",
                     description: Text("Your upcoming bookings will appear here.")
                 )
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
         }
         .scrollContentBackground(.hidden)
@@ -58,25 +76,21 @@ struct CustomerBookingsView: View {
         }
     }
     
-    // MARK: - Booking Row
+    // MARK: Booking Row
     
     @ViewBuilder
     private func bookingRow(_ booking: Booking) -> some View {
         
-        Button(action: {
-            guard let id = booking.id else { return }
-            nav.path.append(
-                AppRoute.bookingDetail(
-                    bookingId: id,
-                    role: "customer"
-                )
-            )
-        }) {
+        Button {
+            
+            handleTap(for: booking)
+            
+        } label: {
+            
             ZStack(alignment: .topTrailing) {
                 
                 BookingRowView(booking: booking)
                 
-                // 🔴 Unread badge
                 if booking.unreadCustomerCount > 0 {
                     unreadBadge(count: booking.unreadCustomerCount)
                 }
@@ -85,7 +99,48 @@ struct CustomerBookingsView: View {
         .buttonStyle(.plain)
     }
     
+    // MARK: Tap Behaviour
+    
+    private func handleTap(for booking: Booking) {
+        
+        guard let id = booking.id else { return }
+        
+        // If unread messages → go straight to chat
+        
+        if booking.unreadCustomerCount > 0 {
+            
+            nav.path.append(
+                AppRoute.bookingDetail(
+                    bookingId: id,
+                    role: "customer"
+                )
+            )
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                
+                nav.path.append(
+                    AppRoute.bookingChat(
+                        bookingId: id
+                    )
+                )
+            }
+        }
+        
+        else {
+            
+            nav.path.append(
+                AppRoute.bookingDetail(
+                    bookingId: id,
+                    role: "customer"
+                )
+            )
+        }
+    }
+    
+    // MARK: Unread Badge
+    
     private func unreadBadge(count: Int) -> some View {
+        
         Text("\(count)")
             .font(.caption2.bold())
             .foregroundColor(.white)

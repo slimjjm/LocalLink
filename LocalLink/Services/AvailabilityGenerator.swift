@@ -126,7 +126,7 @@ final class AvailabilityGenerator {
 
                 if !overlaps {
 
-                    let slotId = Self.isoFormatter.string(from: slotStart)
+                    let slotId = SlotID.make(from: slotStart)
 
                     let slotRef = slotCollection.document(slotId)
 

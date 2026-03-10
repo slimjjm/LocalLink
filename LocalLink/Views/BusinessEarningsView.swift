@@ -45,7 +45,7 @@ struct BusinessEarningsView: View {
                 Spacer()
                 
                 VStack(alignment: .leading) {
-                    Text("Projected")
+                    Text("Booked")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     

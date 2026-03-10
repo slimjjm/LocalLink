@@ -63,6 +63,7 @@ struct BusinessHomeView: View {
         }
         .navigationTitle("Business")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true) // ✅ root screen: prevent return to onboarding
         .onReceive(timer) { _ in
             updateCountdown()
         }
@@ -208,28 +209,34 @@ struct BusinessHomeView: View {
     }
     
     // MARK: - Main Content
-    
+
     private func content(businessId: String) -> some View {
-        
+
         ScrollView {
-            
+
             VStack(spacing: 28) {
-                
+
                 headerSection
-                
-                // 🔔 UNREAD CHAT BANNER (tappable)
+
+                // 🔔 UNREAD CHAT BANNER
+
                 if unreadVM.totalUnread > 0 {
+
                     NavigationLink {
+
                         BusinessBookingsView(businessId: businessId)
+
                     } label: {
+
                         HStack(spacing: 10) {
+
                             Image(systemName: "message.fill")
-                            
+
                             Text("You have \(unreadVM.totalUnread) unread message\(unreadVM.totalUnread > 1 ? "s" : "")")
                                 .lineLimit(2)
-                            
+
                             Spacer()
-                            
+
                             Image(systemName: "chevron.right")
                                 .font(.footnote.weight(.semibold))
                         }
@@ -239,41 +246,57 @@ struct BusinessHomeView: View {
                         .background(AppColors.primary.opacity(0.15))
                         .foregroundColor(AppColors.primary)
                         .cornerRadius(12)
+
                     }
                     .buttonStyle(.plain)
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
-                
-                // 🟢 Recovery (auto dismiss)
+
+                // 🟢 RECOVERY
+
                 if showRecoverySuccess {
+
                     billingBanner(
                         color: .green,
                         title: "Payment Updated",
                         message: "Billing issue resolved. Full access restored."
                     )
                     .transition(.opacity)
+
                 }
-                
-                // 🔴 Hard Restriction
+
+                // 🔴 HARD RESTRICTION
+
                 if restrictionMode {
+
                     billingBanner(
                         color: .red,
                         title: "Account Restricted",
                         message: "Your account is temporarily restricted due to unpaid billing. Update payment to restore access."
                     )
+
                 }
-                
-                // 🟠 Grace Period
+
+                // 🟠 GRACE PERIOD
+
                 else if stripeStatus == "past_due" {
+
                     billingBanner(
                         color: .orange,
                         title: "Payment Issue Detected",
                         message: formattedCountdown()
                     )
                 }
-                
-                BusinessCapacityTileView(viewModel: bookingsVM)
-                
+
+                // TODAY (moved to top)
+
+                BusinessDayScrollerView(
+                    businessId: businessId,
+                    viewModel: bookingsVM
+                )
+
+                // MONTH PERFORMANCE
+
                 BusinessEarningsView(
                     businessId: businessId,
                     viewModel: bookingsVM
@@ -281,14 +304,21 @@ struct BusinessHomeView: View {
                 .padding()
                 .background(Color.white)
                 .cornerRadius(16)
-                
-                BusinessDayScrollerView(
-                    businessId: businessId,
-                    viewModel: bookingsVM
-                )
-                
+
+                // CALENDAR UTILISATION
+
+                BusinessCapacityTileView(viewModel: bookingsVM)
+
+                // STAFF
+
                 staffUsageTile(businessId: businessId)
+
+                // MENU
+
                 menuGrid(businessId: businessId)
+
+                // ROLE SWITCH
+
                 switchRoleButton
             }
             .padding()
@@ -296,7 +326,6 @@ struct BusinessHomeView: View {
         .background(AppColors.background)
         .animation(.easeInOut(duration: 0.2), value: unreadVM.totalUnread)
     }
-    
     // MARK: - Billing Banner
     
     private func billingBanner(color: Color, title: String, message: String) -> some View {
@@ -364,13 +393,9 @@ struct BusinessHomeView: View {
     // MARK: - Header
     
     private var headerSection: some View {
-        
+
         VStack(alignment: .leading, spacing: 8) {
-            
-            Text("Welcome")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            
+
             Text("Business Dashboard")
                 .font(.largeTitle.bold())
                 .foregroundColor(AppColors.charcoal)
@@ -416,9 +441,9 @@ struct BusinessHomeView: View {
     }
     
     // MARK: - Menu Grid
-    
+
     private func menuGrid(businessId: String) -> some View {
-        
+
         LazyVGrid(
             columns: [
                 GridItem(.flexible()),
@@ -426,118 +451,104 @@ struct BusinessHomeView: View {
             ],
             spacing: 20
         ) {
-            
-            // =========================
+
             // SERVICES
-            // =========================
-            
+
             NavigationLink {
                 BusinessServiceListView(businessId: businessId)
             } label: {
                 menuTile(title: "Services", icon: "scissors")
             }
-            
-            // =========================
+
             // BOOKINGS
-            // =========================
-            
+
             NavigationLink {
                 BusinessBookingsView(businessId: businessId)
             } label: {
-                menuTile(title: "Bookings", icon: "calendar")
+                menuTile(title: "Bookings", icon: "book.closed")
             }
-            
-            // =========================
+
             // MANUAL BOOKING
-            // =========================
-            
+
             NavigationLink {
-                
+
                 if !bookingsVM.staff.isEmpty {
-                    
+
                     StaffSelectionView(
                         businessId: businessId,
                         staff: bookingsVM.staff,
                         mode: .manualBooking
                     )
-                    
+
                 } else {
+
                     missingStaffView
+
                 }
-                
+
             } label: {
-                menuTile(title: "Manual booking", icon: "plus.calendar")
+                menuTile(title: "Add booking", icon: "calendar.badge.plus")
             }
-            
-            // =========================
+
             // BLOCK TIME
-            // =========================
-            
+
             NavigationLink {
-                
+
                 if !bookingsVM.staff.isEmpty {
-                    
+
                     StaffSelectionView(
                         businessId: businessId,
                         staff: bookingsVM.staff,
                         mode: .blockTime
                     )
-                    
+
                 } else {
+
                     missingStaffView
+
                 }
-                
+
             } label: {
                 menuTile(title: "Block time", icon: "calendar.badge.minus")
             }
-            
-            // =========================
+
             // CALENDAR
-            // =========================
-            
+
             NavigationLink {
-                
-                let staffIds = bookingsVM.staff.compactMap { $0.id }
-                
-                if !staffIds.isEmpty {
-                    
+
+                if !bookingsVM.staff.isEmpty {
+
                     BusinessBookingCalendarView(
                         businessId: businessId,
-                        staffIds: staffIds
+                        staff: bookingsVM.staff
                     )
-                    
+
                 } else {
                     missingStaffView
                 }
-                
+
             } label: {
-                menuTile(title: "Calendar", icon: "calendar")
+                menuTile(title: "Calendar", icon: "calendar.circle")
             }
-            
-            // =========================
+
             // PROFILE
-            // =========================
-            
+
             NavigationLink {
                 BusinessProfileView(businessId: businessId)
             } label: {
                 menuTile(title: "Profile", icon: "building.2")
             }
-            
-            // =========================
+
             // BILLING
-            // =========================
-            
+
             Button {
                 openBillingPortal()
             } label: {
                 menuTile(title: "Billing", icon: "creditcard")
             }
-            
-            // =========================
+
             // SETTINGS
-            // =========================
-            
+
             NavigationLink {
                 SettingsView()
             } label: {
@@ -546,9 +557,7 @@ struct BusinessHomeView: View {
         }
     }
     
-    //
     // MARK: - Missing Staff View
-    //
     
     private var missingStaffView: some View {
         
@@ -559,15 +568,12 @@ struct BusinessHomeView: View {
         }
     }
     
-    //
     // MARK: - Switch Role
-    //
     
     private var switchRoleButton: some View {
         
         Button {
             nav.reset()
-          
         } label: {
             
             HStack {
@@ -596,9 +602,7 @@ struct BusinessHomeView: View {
         }
     }
     
-    //
     // MARK: - Tile
-    //
     
     private func menuTile(title: String, icon: String) -> some View {
         

@@ -15,11 +15,11 @@ struct StaffSelectionView: View {
 
         List(staff) { member in
 
-            if let staffId = member.id {
+            if member.id != nil {
 
                 NavigationLink {
 
-                    destinationView(staffId: staffId)
+                    destinationView(staff: member)
 
                 } label: {
 
@@ -43,7 +43,7 @@ struct StaffSelectionView: View {
     }
 
     @ViewBuilder
-    private func destinationView(staffId: String) -> some View {
+    private func destinationView(staff: Staff) -> some View {
 
         switch mode {
 
@@ -51,14 +51,14 @@ struct StaffSelectionView: View {
 
             BusinessManualBookingView(
                 businessId: businessId,
-                staffId: staffId
+                staff: staff
             )
 
         case .blockTime:
 
             AddBlockTimeView(
                 businessId: businessId,
-                staffId: staffId
+                staffId: staff.id ?? ""
             )
         }
     }

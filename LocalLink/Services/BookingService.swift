@@ -18,17 +18,23 @@ final class BookingService {
         customerName: String,
         customerAddress: String,
         service: BusinessService,
-        staff: Staff,
+        staffId: String,
         date: Date,
         startTime: Date,
         endTime: Date,
         paymentIntentId: String?,
-        source: String = "app", // 👈 NEW
+        source: String = "app",
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
 
-        guard let serviceId = service.id,
-              let staffId = staff.id else { return }
+        guard let serviceId = service.id else {
+            completion(.failure(NSError(
+                domain: "BookingService",
+                code: 400,
+                userInfo: [NSLocalizedDescriptionKey: "Missing service id."]
+            )))
+            return
+        }
 
         let bookingDay = date.localMidnight()
         let pricePence = Int((service.price * 100).rounded())
@@ -43,6 +49,7 @@ final class BookingService {
         let bookingRef = db.collection("bookings").document()
         let bookingId = bookingRef.documentID
 
+        // Break booking into 30-minute slot segments
         let interval: TimeInterval = 60 * 30
         var slotTimes: [Date] = []
         var cursor = startTime
@@ -52,15 +59,13 @@ final class BookingService {
             cursor = cursor.addingTimeInterval(interval)
         }
 
-        let formatter = ISO8601DateFormatter()
-
         db.runTransaction({ txn, errorPointer -> Any? in
 
             var slotRefs: [DocumentReference] = []
 
             for slotStart in slotTimes {
 
-                let slotId = formatter.string(from: slotStart)
+                let slotId = SlotID.make(from: slotStart)
                 let ref = slotCollection.document(slotId)
                 slotRefs.append(ref)
 
@@ -73,32 +78,27 @@ final class BookingService {
                     return nil
                 }
 
-                // ❗ SLOT MUST EXIST
                 guard snap.exists else {
-
                     errorPointer?.pointee = NSError(
                         domain: "BookingService",
                         code: 404,
-                        userInfo: [NSLocalizedDescriptionKey:
-                                   "Slot does not exist"]
+                        userInfo: [NSLocalizedDescriptionKey: "Slot does not exist."]
                     )
                     return nil
                 }
 
                 if (snap.data()?["isBooked"] as? Bool) == true {
-
                     errorPointer?.pointee = NSError(
                         domain: "BookingService",
                         code: 409,
-                        userInfo: [NSLocalizedDescriptionKey:
-                                   "Slot already booked"]
+                        userInfo: [NSLocalizedDescriptionKey: "Slot already booked."]
                     )
                     return nil
                 }
             }
 
+            // Create booking
             txn.setData([
-
                 "businessId": businessId,
                 "customerId": customerId,
 
@@ -109,7 +109,7 @@ final class BookingService {
                 "price": pricePence,
 
                 "staffId": staffId,
-                "staffName": staff.name,
+                "staffName": "",
 
                 "customerName": customerName,
                 "customerAddress": customerAddress,
@@ -123,13 +123,12 @@ final class BookingService {
                 "endDate": Timestamp(date: endTime),
 
                 "status": BookingStatus.confirmed.rawValue,
-
-                "source": source, // 👈 NEW
+                "source": source,
 
                 "createdAt": FieldValue.serverTimestamp()
-
             ], forDocument: bookingRef)
 
+            // Lock slots
             for ref in slotRefs {
                 txn.setData([
                     "isBooked": true,

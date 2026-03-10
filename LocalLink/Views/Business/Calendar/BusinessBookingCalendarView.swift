@@ -22,7 +22,7 @@ struct CalendarBlock: Identifiable {
 struct BusinessBookingCalendarView: View {
 
     let businessId: String
-    let staffIds: [String]
+    let staff: [Staff]
 
     @State private var selectedDate: Date? = nil
     @State private var currentMonth: Date = Date()
@@ -30,9 +30,9 @@ struct BusinessBookingCalendarView: View {
     @State private var bookingsByDay: [Date: [Booking]] = [:]
     @State private var blocksByDay: [Date: [CalendarBlock]] = [:]
 
-    // NEW
     @State private var availableSlots: [AvailableSlot] = []
     @State private var selectedSlot: AvailableSlot?
+    @State private var selectedStaff: Staff?
 
     private let calendar = Calendar.current
     private let db = Firestore.firestore()
@@ -46,15 +46,21 @@ struct BusinessBookingCalendarView: View {
         guard
             let monthInterval = calendar.dateInterval(of: .month, for: currentMonth),
             let firstWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start),
-            let lastWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.end.addingTimeInterval(-1))
-        else { return [] }
+            let lastWeek = calendar.dateInterval(
+                of: .weekOfMonth,
+                for: monthInterval.end.addingTimeInterval(-1)
+            )
+        else {
+            return []
+        }
 
         var date = firstWeek.start
         var out: [Date] = []
 
         while date < lastWeek.end {
             out.append(date)
-            date = calendar.date(byAdding: .day, value: 1, to: date)!
+            guard let next = calendar.date(byAdding: .day, value: 1, to: date) else { break }
+            date = next
         }
 
         return out
@@ -66,53 +72,70 @@ struct BusinessBookingCalendarView: View {
 
     var body: some View {
 
-        VStack {
+        VStack(spacing: 0) {
 
             monthHeader
+            staffPicker
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7)) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 12) {
 
                 ForEach(days, id: \.self) { date in
 
                     let dayKey = date.localMidnight()
-
-                    let hasBooking = (bookingsByDay[dayKey]?.isEmpty == false)
-                    let hasBlock = (blocksByDay[dayKey]?.isEmpty == false)
+                    let isSelected = selectedDate == dayKey
+                    let hasBooking = !(bookingsByDay[dayKey]?.isEmpty ?? true)
+                    let hasBlock = !(blocksByDay[dayKey]?.isEmpty ?? true)
+                    let isInCurrentMonth = calendar.isDate(date, equalTo: currentMonth, toGranularity: .month)
 
                     ZStack(alignment: .bottom) {
 
                         Text("\(calendar.component(.day, from: date))")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundColor(isInCurrentMonth ? .primary : .secondary.opacity(0.45))
                             .frame(height: 40)
                             .frame(maxWidth: .infinity)
                             .background(
                                 Circle().fill(
                                     hasBlock
                                     ? Color.red.opacity(0.25)
-                                    : selectedDate == dayKey
-                                        ? Color.orange.opacity(0.3)
-                                        : Color.clear
+                                    : isSelected
+                                    ? Color.orange.opacity(0.25)
+                                    : Color.clear
                                 )
                             )
 
                         VStack(spacing: 2) {
 
-                            if hasBooking {
-                                RoundedRectangle(cornerRadius: 2)
-                                    .fill(Color.orange)
-                                    .frame(height: 4)
-                                    .padding(.horizontal, 6)
+                            let bookingCount = bookingsByDay[dayKey]?.count ?? 0
+
+                            if bookingCount > 0 {
+
+                                HStack(spacing: 3) {
+
+                                    ForEach(0..<min(bookingCount, 3), id: \.self) { _ in
+                                        Circle()
+                                            .fill(Color.orange)
+                                            .frame(width: 6, height: 6)
+                                    }
+
+                                    if bookingCount > 3 {
+                                        Text("+")
+                                            .font(.caption2)
+                                            .foregroundColor(.orange)
+                                    }
+                                }
                             }
 
                             if hasBlock {
                                 RoundedRectangle(cornerRadius: 2)
                                     .fill(Color.red)
                                     .frame(height: 4)
-                                    .padding(.horizontal, 6)
+                                    .padding(.horizontal, 10)
                             }
                         }
                         .padding(.bottom, 4)
-                        .padding(.bottom, 4)
                     }
+                    .contentShape(Rectangle())
                     .onTapGesture {
                         selectedDate = dayKey
                         fetchSlotsForDay(dayKey)
@@ -122,9 +145,9 @@ struct BusinessBookingCalendarView: View {
             .padding()
 
             Divider()
+                .padding(.top, 4)
 
             if let selectedDate {
-
                 DayDetailList(
                     businessId: businessId,
                     date: selectedDate,
@@ -135,14 +158,19 @@ struct BusinessBookingCalendarView: View {
                         selectedSlot = slot
                     }
                 )
+            } else {
+                Text("Tap a day to view bookings")
+                    .foregroundColor(.secondary)
+                    .padding()
             }
 
-            Spacer()
+            Spacer(minLength: 0)
         }
         .navigationTitle("Calendar")
         .onAppear {
-
-            selectedDate = Date().localMidnight()
+            if selectedStaff == nil {
+                selectedStaff = staff.first
+            }
 
             fetchMonthData()
 
@@ -153,10 +181,16 @@ struct BusinessBookingCalendarView: View {
         .onChange(of: currentMonth) { _ in
             fetchMonthData()
         }
+        .onChange(of: selectedStaff?.id) { _ in
+            fetchMonthData()
 
-        // SLOT BOOKING SHEET
+            if let selectedDate {
+                fetchSlotsForDay(selectedDate)
+            } else {
+                availableSlots = []
+            }
+        }
         .sheet(item: $selectedSlot) { slot in
-
             BusinessQuickBookingView(
                 businessId: businessId,
                 staffId: slot.staffId,
@@ -164,6 +198,44 @@ struct BusinessBookingCalendarView: View {
                 endTime: slot.endTime
             )
         }
+    }
+
+    // =================================================
+    // STAFF PICKER
+    // =================================================
+
+    private var staffPicker: some View {
+
+        ScrollView(.horizontal, showsIndicators: false) {
+
+            HStack(spacing: 10) {
+
+                ForEach(staff) { member in
+
+                    let isSelected = selectedStaff?.id == member.id
+
+                    Button {
+                        selectedStaff = member
+
+                        if let selectedDate {
+                            fetchSlotsForDay(selectedDate)
+                        }
+                    } label: {
+                        Text(member.name.isEmpty ? "Staff" : member.name)
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(
+                                Capsule()
+                                    .fill(isSelected ? Color.orange : Color.gray.opacity(0.2))
+                            )
+                            .foregroundColor(isSelected ? .white : .primary)
+                    }
+                }
+            }
+            .padding(.horizontal)
+        }
+        .padding(.bottom, 8)
     }
 
     // =================================================
@@ -175,18 +247,27 @@ struct BusinessBookingCalendarView: View {
         HStack {
 
             Button {
-                currentMonth = calendar.date(byAdding: .month, value: -1, to: currentMonth)!
-            } label: { Image(systemName: "chevron.left") }
+                guard let previous = calendar.date(byAdding: .month, value: -1, to: currentMonth) else { return }
+                currentMonth = previous
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.title3.weight(.medium))
+            }
 
             Spacer()
 
-            Text(monthTitle).font(.headline)
+            Text(monthTitle)
+                .font(.headline)
 
             Spacer()
 
             Button {
-                currentMonth = calendar.date(byAdding: .month, value: 1, to: currentMonth)!
-            } label: { Image(systemName: "chevron.right") }
+                guard let next = calendar.date(byAdding: .month, value: 1, to: currentMonth) else { return }
+                currentMonth = next
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.title3.weight(.medium))
+            }
         }
         .padding()
     }
@@ -198,17 +279,26 @@ struct BusinessBookingCalendarView: View {
     }
 
     // =================================================
-    // FETCH BOOKINGS + BLOCKS
+    // FETCH BOOKINGS
     // =================================================
 
     private func fetchMonthData() {
 
         guard let range = calendar.dateInterval(of: .month, for: currentMonth) else { return }
 
+        let selectedStaffIds = selectedStaff?.id.map { [$0] }
+            ?? staff.compactMap(\.id)
+
+        guard !selectedStaffIds.isEmpty else {
+            bookingsByDay = [:]
+            blocksByDay = [:]
+            return
+        }
+
         db.collection("bookings")
             .whereField("businessId", isEqualTo: businessId)
-            .whereField("status", isEqualTo: "confirmed")
-            .whereField("staffId", in: staffIds)
+            .whereField("status", isEqualTo: BookingStatus.confirmed.rawValue)
+            .whereField("staffId", in: selectedStaffIds)
             .whereField("startDate", isGreaterThanOrEqualTo: Timestamp(date: range.start))
             .whereField("startDate", isLessThan: Timestamp(date: range.end))
             .getDocuments { snap, error in
@@ -218,7 +308,9 @@ struct BusinessBookingCalendarView: View {
                     return
                 }
 
-                let bookings = snap?.documents.compactMap { try? $0.data(as: Booking.self) } ?? []
+                let bookings = snap?.documents.compactMap {
+                    try? $0.data(as: Booking.self)
+                } ?? []
 
                 DispatchQueue.main.async {
                     self.bookingsByDay = Dictionary(grouping: bookings) {
@@ -229,55 +321,48 @@ struct BusinessBookingCalendarView: View {
     }
 
     // =================================================
-    // FETCH SLOTS FOR DAY
+    // FETCH SLOTS
     // =================================================
 
     private func fetchSlotsForDay(_ date: Date) {
 
+        guard let staffId = selectedStaff?.id else {
+            availableSlots = []
+            return
+        }
+
         let start = calendar.startOfDay(for: date)
-        let end = calendar.date(byAdding: .day, value: 1, to: start)!
+        guard let end = calendar.date(byAdding: .day, value: 1, to: start) else {
+            availableSlots = []
+            return
+        }
 
-        var slots: [AvailableSlot] = []
+        db.collection("businesses")
+            .document(businessId)
+            .collection("staff")
+            .document(staffId)
+            .collection("availableSlots")
+            .whereField("startTime", isGreaterThanOrEqualTo: Timestamp(date: start))
+            .whereField("startTime", isLessThan: Timestamp(date: end))
+            .getDocuments { snap, error in
 
-        let group = DispatchGroup()
-
-        for staffId in staffIds {
-
-            group.enter()
-
-            db.collection("businesses")
-                .document(businessId)
-                .collection("staff")
-                .document(staffId)
-                .collection("availableSlots")
-                .whereField("startTime", isGreaterThanOrEqualTo: Timestamp(date: start))
-                .whereField("startTime", isLessThan: Timestamp(date: end))
-                .whereField("isBooked", isEqualTo: false)
-                .getDocuments { snap, _ in
-
-                    if let docs = snap?.documents {
-
-                        let fetched = docs.compactMap {
-                            try? $0.data(as: AvailableSlot.self)
-                        }
-
-                        slots.append(contentsOf: fetched)
-                    }
-
-                    group.leave()
+                if let error {
+                    print("❌ Failed to fetch slots:", error)
+                    return
                 }
-        }
 
-        group.notify(queue: .main) {
+                let slots = snap?.documents.compactMap {
+                    try? $0.data(as: AvailableSlot.self)
+                } ?? []
 
-            self.availableSlots = slots.sorted {
-                $0.startTime < $1.startTime
+                DispatchQueue.main.async {
+                    self.availableSlots = slots.sorted { $0.startTime < $1.startTime }
+                }
             }
-        }
     }
 
     // =================================================
-    // DAY DETAIL LIST
+    // DAY DETAIL
     // =================================================
 
     struct DayDetailList: View {
@@ -292,65 +377,87 @@ struct BusinessBookingCalendarView: View {
 
         var body: some View {
 
-            VStack(alignment: .leading, spacing: 8) {
+            ScrollView {
 
-                if !bookings.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
 
-                    Text("Bookings").font(.headline)
+                    Text(date.formatted(date: .abbreviated, time: .omitted))
+                        .font(.headline)
+                        .padding(.bottom, 4)
 
-                    ForEach(bookings) { booking in
-
-                        NavigationLink {
-                            BookingDetailView(
-                                bookingId: booking.id ?? "",
-                                currentUserRole: "business"
-                            )
-                        } label: {
-                            Text(
-                                "\(booking.startDate.formatted(date: .omitted, time: .shortened)) – \(booking.serviceName)"
-                            )
-                        }
-                    }
+                    timeline
                 }
+                .padding()
+            }
+        }
 
-                if !slots.isEmpty {
+        // ============================================
+        // TIMELINE
+        // ============================================
 
-                    Text("Available").font(.headline).padding(.top)
+        private var timeline: some View {
 
-                    ForEach(slots) { slot in
+            VStack(spacing: 0) {
 
-                        Button {
+                ForEach(slots) { slot in
 
-                            onSlotTapped(slot)
+                    let booking = bookings.first {
+                        Calendar.current.isDate($0.startDate, equalTo: slot.startTime, toGranularity: .minute)
+                    }
 
-                        } label: {
+                    HStack(alignment: .center, spacing: 12) {
 
-                            HStack {
+                        Text(slot.startTime.formatted(date: .omitted, time: .shortened))
+                            .font(.caption)
+                            .frame(width: 70, alignment: .leading)
 
-                                Text(
-                                    slot.startTime.formatted(
-                                        date: .omitted,
-                                        time: .shortened
-                                    )
-                                )
+                        Divider()
 
-                                Spacer()
+                        if let booking {
 
-                                Image(systemName: "plus.circle.fill")
-                                    .foregroundColor(.green)
+                            VStack(alignment: .leading, spacing: 4) {
+
+                                Text(booking.safeServiceName)
+                                    .font(.subheadline.weight(.semibold))
+
+                                Text(booking.safeCustomerName)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.orange.opacity(0.15))
+                            .cornerRadius(8)
+
+                        } else {
+
+                            Button {
+                                onSlotTapped(slot)
+                            } label: {
+                                HStack {
+                                    Text("Available")
+                                    Spacer()
+                                    Image(systemName: "plus.circle.fill")
+                                        .foregroundColor(.green)
+                                }
+                                .padding(8)
+                            }
+                            .background(Color.gray.opacity(0.08))
+                            .cornerRadius(8)
                         }
                     }
+                    .frame(height: 50)
                 }
 
-                if bookings.isEmpty && slots.isEmpty {
-
-                    Text("No bookings or available slots.")
-                        .foregroundColor(.secondary)
-                        .padding(.top, 4)
+                if slots.isEmpty {
+                    HStack {
+                        Text("No available slots")
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                    .padding(.top, 8)
                 }
             }
-            .padding()
         }
     }
 }

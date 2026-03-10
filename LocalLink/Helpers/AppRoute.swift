@@ -34,5 +34,13 @@ enum AppRoute: Hashable {
         bookingId: String
     )
     
-    case bookingDetail(bookingId: String, role: String)
+    case bookingDetail(
+        bookingId: String,
+        role: String
+    )
+    
+    // NEW
+    case bookingChat(
+        bookingId: String
+    )
 }
