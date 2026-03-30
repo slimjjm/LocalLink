@@ -11,7 +11,6 @@ struct VerifyEmailView: View {
 
     var body: some View {
         VStack(spacing: 24) {
-
             Spacer()
 
             Image(systemName: "envelope.badge")
@@ -30,6 +29,7 @@ struct VerifyEmailView: View {
             } label: {
                 if isChecking {
                     ProgressView()
+                        .frame(maxWidth: .infinity)
                 } else {
                     Text("I've verified my email")
                         .frame(maxWidth: .infinity)
@@ -44,6 +44,7 @@ struct VerifyEmailView: View {
             .font(.subheadline)
 
             Button("Back to login", role: .destructive) {
+                authManager.clearEmailVerificationPrompt()
                 authManager.logout()
                 nav.reset()
             }
@@ -53,10 +54,11 @@ struct VerifyEmailView: View {
         .padding()
     }
 
-    // MARK: - Reload + Verify
-
     private func checkVerification() {
-        guard let user = Auth.auth().currentUser else { return }
+        guard let user = Auth.auth().currentUser else {
+            message = "No signed-in user found."
+            return
+        }
 
         isChecking = true
         message = "Checking verification status…"
@@ -65,13 +67,23 @@ struct VerifyEmailView: View {
             DispatchQueue.main.async {
                 isChecking = false
 
-                if let error {
+                if let error = error {
                     message = error.localizedDescription
                     return
                 }
 
-                if user.isEmailVerified {
+                guard let refreshedUser = Auth.auth().currentUser else {
+                    message = "No signed-in user found."
+                    return
+                }
+
+                if refreshedUser.isEmailVerified {
+                    authManager.clearEmailVerificationPrompt()
                     message = "Email verified! Redirecting…"
+
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        nav.reset()
+                    }
                 } else {
                     message = "Email not verified yet. Please check your inbox."
                 }
@@ -80,6 +92,21 @@ struct VerifyEmailView: View {
     }
 
     private func resendVerification() {
-        Auth.auth().currentUser?.sendEmailVerification()
+        guard let user = Auth.auth().currentUser else {
+            message = "No signed-in user found."
+            return
+        }
+
+        message = "Sending verification email…"
+
+        user.sendEmailVerification { error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    message = error.localizedDescription
+                } else {
+                    message = "Verification email sent. Check your inbox."
+                }
+            }
+        }
     }
 }

@@ -101,7 +101,7 @@ final class BlockConflictService {
             print("❌ Cancelling booking:", conflict.id)
 
             batch.updateData([
-                "status": BookingStatus.cancelledByBusiness.rawValue,
+                "status": BookingStatus.cancelled_by_business.rawValue,
                 "cancelReason": "Blocked time",
                 "cancelledAt": FieldValue.serverTimestamp(),
                 "cancelledByStaffId": staffId,

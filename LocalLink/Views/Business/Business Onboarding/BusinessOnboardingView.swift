@@ -27,20 +27,34 @@ struct BusinessOnboardingView: View {
     private let db = Firestore.firestore()
 
     var body: some View {
+
         ScrollView {
+
             VStack(spacing: 24) {
 
-                Text("Create your business")
+                // ✅ Conversion-focused headline
+                Text("Start getting bookings")
                     .font(.largeTitle.bold())
 
-                // MARK: - Business Name
-
-                TextField("Business name", text: $businessName)
-                    .textFieldStyle(.roundedBorder)
-
-                // MARK: - Address with Autocomplete
+                // MARK: Business Name
 
                 VStack(alignment: .leading, spacing: 6) {
+
+                    Text("Business name")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    TextField("Business name", text: $businessName)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                // MARK: Address
+
+                VStack(alignment: .leading, spacing: 6) {
+
+                    Text("Business address")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
 
                     TextField("Business address", text: $address)
                         .textFieldStyle(.roundedBorder)
@@ -49,21 +63,29 @@ struct BusinessOnboardingView: View {
                         }
 
                     if !addressSearch.results.isEmpty && !address.isEmpty {
+
                         ScrollView {
+
                             VStack(spacing: 0) {
+
                                 ForEach(addressSearch.results) { result in
+
                                     Button {
                                         selectAddress(result)
                                     } label: {
+
                                         VStack(alignment: .leading, spacing: 4) {
+
                                             Text(result.title)
                                                 .font(.headline)
+
                                             Text(result.subtitle)
                                                 .font(.caption)
                                                 .foregroundColor(.secondary)
                                         }
                                         .padding(10)
                                         .frame(maxWidth: .infinity, alignment: .leading)
+                                        .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
 
@@ -74,47 +96,72 @@ struct BusinessOnboardingView: View {
                         .frame(maxHeight: 180)
                         .background(Color(.secondarySystemBackground))
                         .cornerRadius(10)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                        .animation(.easeInOut(duration: 0.2), value: addressSearch.results.count)
                     }
                 }
 
-                // MARK: - Category
+                // MARK: Category
 
-                Picker("Category", selection: $selectedCategory) {
-                    Text("Select category").tag(BusinessCategory?.none)
-                    ForEach(BusinessCategory.allCases) { category in
-                        Text(category.rawValue).tag(Optional(category))
+                VStack(alignment: .leading, spacing: 6) {
+
+                    Text("Category")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Picker("Category", selection: $selectedCategory) {
+
+                        Text("Select category").tag(BusinessCategory?.none)
+
+                        ForEach(BusinessCategory.allCases) { category in
+                            Text(category.rawValue).tag(Optional(category))
+                        }
                     }
+                    .pickerStyle(.menu)
                 }
-                .pickerStyle(.menu)
 
-                // MARK: - Base Town
+                // MARK: Town
 
-                Picker("Town", selection: $selectedTown) {
-                    Text("Select town").tag(SupportedTown?.none)
-                    ForEach(SupportedTown.allCases) { town in
-                        Text(town.rawValue).tag(Optional(town))
+                VStack(alignment: .leading, spacing: 6) {
+
+                    Text("Town")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Picker("Town", selection: $selectedTown) {
+
+                        Text("Select town").tag(SupportedTown?.none)
+
+                        ForEach(SupportedTown.allCases) { town in
+                            Text(town.rawValue).tag(Optional(town))
+                        }
                     }
+                    .pickerStyle(.menu)
                 }
-                .pickerStyle(.menu)
 
-                // MARK: - Mobile Toggle
+                // MARK: Mobile Toggle
 
                 Toggle("Mobile business (travels to customers)", isOn: $isMobile)
+                    .onChange(of: isMobile) { newValue in
+                        if newValue, let selectedTown {
+                            selectedServiceTowns.insert(selectedTown)
+                        }
+                    }
 
-                // MARK: - Multi Town Selection
+                // MARK: Service Towns
 
                 if isMobile {
+
                     VStack(alignment: .leading, spacing: 8) {
+
                         Text("Service towns")
                             .font(.headline)
 
                         ForEach(SupportedTown.allCases) { town in
+
                             MultipleSelectionRow(
                                 title: town.rawValue,
                                 isSelected: selectedServiceTowns.contains(town)
                             ) {
+
                                 if selectedServiceTowns.contains(town) {
                                     selectedServiceTowns.remove(town)
                                 } else {
@@ -125,19 +172,26 @@ struct BusinessOnboardingView: View {
                     }
                 }
 
-                // MARK: - Error
+                // MARK: Error Message
 
                 if let errorMessage {
+
                     Text(errorMessage)
                         .foregroundColor(.red)
                         .multilineTextAlignment(.center)
                 }
 
-                // MARK: - Create Button
+                // MARK: Create Button
 
                 Button {
+
+                    // ✅ Dismiss keyboard
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+
                     createBusiness()
+
                 } label: {
+
                     if isSaving {
                         ProgressView()
                     } else {
@@ -156,7 +210,7 @@ struct BusinessOnboardingView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    // MARK: - Address Selection
+    // MARK: Address Selection
 
     private func selectAddress(_ result: AddressResult) {
 
@@ -173,7 +227,7 @@ struct BusinessOnboardingView: View {
         }
     }
 
-    // MARK: - Infer Town
+    // MARK: Infer Town
 
     private func inferTown(from address: String) {
 
@@ -185,15 +239,15 @@ struct BusinessOnboardingView: View {
         }
     }
 
-    // MARK: - Validation
+    // MARK: Validation
 
     private var formIsValid: Bool {
 
         let baseValid =
-        !businessName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        && !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        && selectedCategory != nil
-        && selectedTown != nil
+        !businessName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        selectedCategory != nil &&
+        selectedTown != nil
 
         if isMobile {
             return baseValid && !selectedServiceTowns.isEmpty
@@ -202,76 +256,96 @@ struct BusinessOnboardingView: View {
         return baseValid
     }
 
-    // MARK: - Create Business
+    // MARK: Create Business
 
     private func createBusiness() {
+
+        guard formIsValid else {
+            errorMessage = "Please complete all required fields."
+            return
+        }
 
         guard let user = Auth.auth().currentUser else {
             errorMessage = "Please sign in to continue."
             return
         }
 
-        if user.isAnonymous {
+        guard !user.isAnonymous else {
             errorMessage = "Please create an account to create a business."
             return
         }
 
-        if !user.isEmailVerified {
+        guard user.isEmailVerified else {
             user.sendEmailVerification()
             errorMessage = "Please verify your email before creating a business."
             return
         }
 
         guard let selectedCategory,
-              let selectedTown else {
-            errorMessage = "Please complete all required fields."
-            return
-        }
+              let selectedTown else { return }
 
         isSaving = true
         errorMessage = nil
 
-        let baseTown = selectedTown.rawValue
+        // ✅ Prevent duplicate businesses
+        db.collection("businesses")
+            .whereField("ownerId", isEqualTo: user.uid)
+            .limit(to: 1)
+            .getDocuments { snapshot, _ in
 
-        let serviceTownValues: [String] =
-            isMobile
-            ? selectedServiceTowns.map { $0.rawValue }
-            : [baseTown]
+                if snapshot?.documents.first != nil {
+                    DispatchQueue.main.async {
+                        isSaving = false
+                        errorMessage = "You already have a business."
+                    }
+                    return
+                }
 
-        let data: [String: Any] = [
-            "businessName": businessName.trimmingCharacters(in: .whitespacesAndNewlines),
-            "address": address,
-            "ownerId": user.uid,
-            "createdAt": FieldValue.serverTimestamp(),
+                let baseTown = selectedTown.rawValue
 
-            "town": baseTown,
-            "category": selectedCategory.rawValue,
+                let serviceTownValues: [String] =
+                isMobile
+                ? selectedServiceTowns.map { $0.rawValue }
+                : [baseTown]
 
-            "isMobile": isMobile,
-            "serviceTowns": serviceTownValues,
+                let data: [String: Any] = [
 
-            "latitude": latitude ?? NSNull(),
-            "longitude": longitude ?? NSNull(),
+                    "businessName": businessName.trimmingCharacters(in: .whitespacesAndNewlines),
+                    "address": address,
+                    "ownerId": user.uid,
+                    "createdAt": FieldValue.serverTimestamp(),
 
-            "isActive": true,
-            "verified": false,
+                    "town": baseTown,
+                    "category": selectedCategory.rawValue,
 
-            "staffSlotsAllowed": 1,
-            "staffSlotsPurchased": 0
-        ]
+                    "isMobile": isMobile,
+                    "serviceTowns": serviceTownValues,
 
-        db.collection("businesses").addDocument(data: data) { error in
-            DispatchQueue.main.async {
-                isSaving = false
+                    "latitude": latitude ?? NSNull(),
+                    "longitude": longitude ?? NSNull(),
 
-                if let error {
-                    errorMessage = error.localizedDescription
-                } else {
-                    authManager.setRole(.business)
-                    nav.reset()
-                    nav.path.append(.businessHome)
+                    "isActive": true,
+                    "verified": false,
+
+                    "staffSlotsAllowed": 1,
+                    "staffSlotsPurchased": 0
+                ]
+
+                db.collection("businesses").addDocument(data: data) { error in
+
+                    DispatchQueue.main.async {
+
+                        isSaving = false
+
+                        if let error {
+                            errorMessage = error.localizedDescription
+                        } else {
+                            authManager.setRole(.business)
+                            nav.reset()
+                            nav.path.append(.businessHome)
+                        }
+                    }
                 }
             }
-        }
     }
 }

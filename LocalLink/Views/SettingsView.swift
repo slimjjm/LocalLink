@@ -5,6 +5,9 @@ struct SettingsView: View {
     @EnvironmentObject private var nav: NavigationState
     @EnvironmentObject private var authManager: AuthManager
 
+    @State private var isDeleting = false
+    @State private var deleteError: String?
+
     // MARK: - Role Check
 
     private var isBusinessUser: Bool {
@@ -25,6 +28,9 @@ struct SettingsView: View {
             // Support Section
             supportSection
 
+            // Account Section
+            accountSection
+
             // Sign Out Section
             signOutSection
         }
@@ -32,6 +38,14 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .scrollContentBackground(.hidden)
         .background(AppColors.background)
+        .overlay {
+            if isDeleting {
+                ProgressView("Deleting account...")
+                    .padding()
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(12)
+            }
+        }
     }
 
     // MARK: - Business Section
@@ -39,7 +53,11 @@ struct SettingsView: View {
     private var businessSection: some View {
 
         Section("Business") {
-
+            NavigationLink {
+                StripeConnectView()
+            } label: {
+                Label("Connect Stripe", systemImage: "creditcard.circle")
+            }
             NavigationLink {
                 BusinessSubscriptionResolverView()
             } label: {
@@ -81,6 +99,26 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Account Section
+
+    private var accountSection: some View {
+
+        Section("Account") {
+
+            Button(role: .destructive) {
+                deleteAccount()
+            } label: {
+                Label("Delete account", systemImage: "trash")
+            }
+
+            if let deleteError {
+                Text(deleteError)
+                    .foregroundColor(.red)
+                    .font(.footnote)
+            }
+        }
+    }
+
     // MARK: - Sign Out Section
 
     private var signOutSection: some View {
@@ -95,6 +133,37 @@ struct SettingsView: View {
             } label: {
 
                 Label("Sign out", systemImage: "arrow.backward.circle.fill")
+            }
+        }
+    }
+
+    // MARK: - Delete Account
+
+    private func deleteAccount() {
+
+        isDeleting = true
+        deleteError = nil
+
+        let service = AccountDeletionService()
+
+        service.deleteAccount { result in
+
+            DispatchQueue.main.async {
+
+                isDeleting = false
+
+                switch result {
+
+                case .success:
+                    print("✅ Account deleted")
+
+                    authManager.logout()
+                    nav.reset()
+
+                case .failure(let error):
+                    deleteError = error.localizedDescription
+                    print("❌ Delete error:", error.localizedDescription)
+                }
             }
         }
     }

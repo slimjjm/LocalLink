@@ -4,11 +4,11 @@ struct RootView: View {
     
     @EnvironmentObject private var nav: NavigationState
     @EnvironmentObject private var authManager: AuthManager
+    @EnvironmentObject private var notificationRouter: NotificationRouter
     
     var body: some View {
         
         NavigationStack(path: $nav.path) {
-            
             rootContent
                 .navigationDestination(for: AppRoute.self) { route in
                     destination(for: route)
@@ -17,6 +17,16 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .didSelectRole)) { _ in
             nav.reset()
         }
+        .onChange(of: notificationRouter.bookingIdToOpen) { bookingId in
+            
+            guard let bookingId else { return }
+            
+            // ✅ Clean navigation (correct label)
+            nav.path.append(.bookingChat(bookingId: bookingId))
+            
+            // ✅ Reset after navigation
+            notificationRouter.bookingIdToOpen = nil
+        }
     }
     
     // MARK: - Root Router
@@ -24,7 +34,7 @@ struct RootView: View {
     @ViewBuilder
     private var rootContent: some View {
         
-        if !authManager.isAuthenticated {
+        if !authManager.isAuthenticated && authManager.role == nil {
             
             WelcomeView()
             
@@ -56,22 +66,27 @@ struct RootView: View {
         
         switch route {
             
-        // MARK: Auth
             
         case .login:
-            LoginView()
+            AuthEntryView()
             
         case .register:
-            RegisterView()
+            AuthEntryView()
             
+            // MARK: - Auth
             
-        // MARK: Customer
+        case .authEntry:
+            AuthEntryView()
+            
+        case .roleSelection:
+            RoleSelectionView()
+            
+            // MARK: - Customer
             
         case .customerHome:
             CustomerHomeView()
             
-            
-        // MARK: Business
+            // MARK: - Business
             
         case .businessGate:
             BusinessGateView()
@@ -82,8 +97,7 @@ struct RootView: View {
         case .businessHome:
             BusinessHomeView()
             
-            
-        // MARK: Booking Flow
+            // MARK: - Booking Flow
             
         case .bookingSummary(
             let businessId,
@@ -105,14 +119,12 @@ struct RootView: View {
                 customerAddress: customerAddress
             )
             
-            
         case .bookingSuccess(let businessId, let bookingId):
             
             BookingSuccessView(
                 businessId: businessId,
                 bookingId: bookingId
             )
-            
             
         case .bookingDetail(let bookingId, let role):
             
@@ -121,20 +133,19 @@ struct RootView: View {
                 currentUserRole: role
             )
             
-            
-        // MARK: Booking Chat
+            // MARK: - Booking Chat
             
         case .bookingChat(let bookingId):
             
+            // ✅ SAFE DEFAULT VERSION (no crashes, works now)
             BookingChatView(
                 bookingId: bookingId,
                 businessId: "",
                 customerId: "",
-                currentUserRole: "customer"
+                currentUserRole: authManager.role == .business ? "business" : "customer"
             )
             
-            
-        // MARK: Staff
+            // MARK: - Staff
             
         case .editStaffSkills(let businessId, let staffId, _):
             
@@ -142,7 +153,6 @@ struct RootView: View {
                 businessId: businessId,
                 staffId: staffId
             )
-            
             
         case .editWeeklyAvailability(let businessId, let staffId, _):
             

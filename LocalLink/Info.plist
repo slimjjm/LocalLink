@@ -12,11 +12,11 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>Item</string>
-				<string>0</string>
-				<string>=</string>
 				<string>com.googleusercontent.apps.126981571024-hjpfhln362q2iadd2mp9gblvg2sjnfll</string>
 			</array>
 		</dict>
 	</array>
+	<key>UIBackgroundModes</key>
+	<array/>
 </dict>
 </plist>

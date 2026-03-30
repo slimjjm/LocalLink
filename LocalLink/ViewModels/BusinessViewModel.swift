@@ -8,13 +8,13 @@ final class BusinessViewModel: ObservableObject {
 
     // MARK: - Onboarding Fields
     @Published var businessName: String = ""
-    @Published var businessDescription: String = ""
-    @Published var serviceCategory: String = ""
+    @Published var bio: String = ""
+    @Published var category: String = ""
+    @Published var photoURLs: [String] = []
 
-    // Step 4 – Photo
+    // MARK: - Image
     @Published var imageSelection: PhotosPickerItem?
     @Published var selectedImage: UIImage?
-    @Published var uploadedImageURL: String?
 
     // MARK: - State
     @Published var isSaving = false
@@ -22,8 +22,8 @@ final class BusinessViewModel: ObservableObject {
     // MARK: - Validation
     var isFullyValid: Bool {
         !businessName.isEmpty &&
-        !businessDescription.isEmpty &&
-        !serviceCategory.isEmpty &&
+        !bio.isEmpty &&
+        !category.isEmpty &&
         selectedImage != nil
     }
 
@@ -44,6 +44,7 @@ final class BusinessViewModel: ObservableObject {
     // MARK: - Image Upload
     private func uploadImage(
         _ image: UIImage,
+        userId: String,
         completion: @escaping (Result<String, Error>) -> Void
     ) {
         guard let data = image.jpegData(compressionQuality: 0.8) else {
@@ -52,11 +53,12 @@ final class BusinessViewModel: ObservableObject {
         }
 
         let filename = UUID().uuidString + ".jpg"
+
         let ref = Storage.storage()
             .reference()
-            .child("business_images/\(filename)")
+            .child("business_images/\(userId)/\(filename)") // ✅ FIXED
 
-        ref.putData(data) { _, error in
+        ref.putData(data, metadata: nil) { _, error in
             if let error {
                 completion(.failure(error))
                 return
@@ -68,7 +70,12 @@ final class BusinessViewModel: ObservableObject {
                     return
                 }
 
-                completion(.success(url!.absoluteString))
+                guard let url else {
+                    completion(.failure(NSError(domain: "URL Error", code: -2)))
+                    return
+                }
+
+                completion(.success(url.absoluteString))
             }
         }
     }
@@ -95,7 +102,7 @@ final class BusinessViewModel: ObservableObject {
 
         isSaving = true
 
-        uploadImage(image) { [weak self] result in
+        uploadImage(image, userId: uid) { [weak self] result in
             guard let self else { return }
 
             switch result {
@@ -108,15 +115,26 @@ final class BusinessViewModel: ObservableObject {
                 }
 
             case .success(let imageURL):
-                self.uploadedImageURL = imageURL
 
                 let businessData: [String: Any] = [
                     "businessName": self.businessName,
-                    "businessDescription": self.businessDescription,
-                    "serviceCategory": self.serviceCategory,
-                    "imageURL": imageURL,
-                    "ownerId": uid,                 // ✅ CRITICAL FIX
-                    "createdAt": Timestamp()
+                    "bio": self.bio,
+                    "category": self.category,
+                    "photoURLs": [imageURL],
+
+                    "town": "",
+                    "isMobile": false,
+                    "serviceTowns": [],
+
+                    "isActive": true,
+                    "verified": false,
+
+                    "ownerId": uid,
+                    "createdAt": Timestamp(),
+
+                    // Ratings
+                    "ratingPositiveCount": 0,
+                    "ratingNegativeCount": 0
                 ]
 
                 Firestore.firestore()
@@ -138,4 +156,3 @@ final class BusinessViewModel: ObservableObject {
         }
     }
 }
-

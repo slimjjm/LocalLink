@@ -39,7 +39,7 @@ final class BookingRepository {
         db.collection("bookings")
             .document(bookingId)
             .updateData([
-                "status": BookingStatus.cancelledByBusiness.rawValue
+                "status": BookingStatus.cancelled_by_business.rawValue
             ]) { error in
                 DispatchQueue.main.async {
                     if let error {

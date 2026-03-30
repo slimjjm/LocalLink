@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1825FDCC2F79F7E100E0AEAF /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 1825FDCB2F79F7E100E0AEAF /* FirebaseMessaging */; };
 		18B3EA442F4348290010CCA7 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 18B3EA432F4348290010CCA7 /* GoogleSignIn */; };
 		18B3EA462F4348290010CCA7 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 18B3EA452F4348290010CCA7 /* GoogleSignInSwift */; };
 		18B3EDE02F453AFD0010CCA7 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = 18B3EDDF2F453AFD0010CCA7 /* FirebaseFunctions */; };
@@ -47,11 +48,14 @@
 		18B786552EEE3FA800A55500 /* Exceptions for "LocalLink" folder in "LocalLink" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Helpers/DurationPickerRow.swift,
+				Helpers/Foundation.swift,
+				Helpers/ImagePicker.swift,
 				Info.plist,
 				Models/BookingSlot.swift,
 				Models/StaffMember.swift,
 				Services/StoreKitManager.swift,
-				Services/Untitled.swift,
+				"Services/Untitled 2.swift",
 				Services/WeeklyAvailbilityRepository.swift,
 				Utilities/BookingAvailabilityValidator.swift,
 				Views/AddServiceView.swift,
@@ -89,6 +93,7 @@
 			files = (
 				18B3EDE32F453EBB0010CCA7 /* StripePaymentSheet in Frameworks */,
 				18B3EA442F4348290010CCA7 /* GoogleSignIn in Frameworks */,
+				1825FDCC2F79F7E100E0AEAF /* FirebaseMessaging in Frameworks */,
 				18B3EDE02F453AFD0010CCA7 /* FirebaseFunctions in Frameworks */,
 				18EF23AC2F00A14600660677 /* FirebaseAuth in Frameworks */,
 				18EF23B22F00A14600660677 /* FirebaseStorage in Frameworks */,
@@ -174,6 +179,7 @@
 				18B3EDDF2F453AFD0010CCA7 /* FirebaseFunctions */,
 				18B3EDE22F453EBB0010CCA7 /* StripePaymentSheet */,
 				18B3EDE42F4549820010CCA7 /* Stripe */,
+				1825FDCB2F79F7E100E0AEAF /* FirebaseMessaging */,
 			);
 			productName = LocalLink;
 			productReference = 1886572C2EDDECEA00C1F0F9 /* LocalLink.app */;
@@ -465,14 +471,16 @@
 				CODE_SIGN_ENTITLEMENTS = LocalLink/LocalLink.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"LocalLink/Preview Content\"";
 				DEVELOPMENT_TEAM = 3XJ7737Y29;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = LocalLink/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "LocalLink allows users to take photos for bookings, services and business listings.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "LocalLink allows users to save and upload photos related to services and bookings.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "LocalLink allows users to upload photos for bookings, services and business profiles.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -482,7 +490,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.9;
 				PRODUCT_BUNDLE_IDENTIFIER = "Canine-Connections.LocalLink";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -500,14 +508,16 @@
 				CODE_SIGN_ENTITLEMENTS = LocalLink/LocalLink.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"LocalLink/Preview Content\"";
 				DEVELOPMENT_TEAM = 3XJ7737Y29;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = LocalLink/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "LocalLink allows users to take photos for bookings, services and business listings.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "LocalLink allows users to save and upload photos related to services and bookings.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "LocalLink allows users to upload photos for bookings, services and business profiles.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -517,7 +527,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.9;
 				PRODUCT_BUNDLE_IDENTIFIER = "Canine-Connections.LocalLink";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -672,6 +682,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		1825FDCB2F79F7E100E0AEAF /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 18EF23AA2F00A14600660677 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
+		};
 		18B3EA432F4348290010CCA7 /* GoogleSignIn */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 18B3EA422F4348290010CCA7 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;

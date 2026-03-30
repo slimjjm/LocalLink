@@ -12,86 +12,122 @@ struct BusinessGateView: View {
     @State private var infoMessage: String?
     @State private var showAuthCTA = false
     @State private var showResendVerify = false
-
-    // 🔑 Prevents the gate from re-running every time the view appears
     @State private var hasChecked = false
 
     private let db = Firestore.firestore()
 
     var body: some View {
-        Group {
+
+        VStack {
+            
             if isLoading {
                 ProgressView("Loading business…")
-
-            } else if let errorMessage {
+            }
+            else if let errorMessage {
                 errorView(message: errorMessage)
-
-            } else {
-                // Safety fallback (normally we immediately route away)
-                EmptyBusinessStateView()
+            }
+            else {
+                ProgressView() // safety fallback
             }
         }
         .navigationTitle("Business")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            // Only run the gate once per session entry
             if !hasChecked {
                 hasChecked = true
                 loadBusiness()
             }
         }
     }
+}
 
-    // MARK: - Error / Gate View
+// MARK: - UI
 
-    private func errorView(message: String) -> some View {
-        VStack(spacing: 16) {
+private extension BusinessGateView {
 
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 36))
-                .foregroundColor(.orange)
+    func errorView(message: String) -> some View {
+        VStack(spacing: 24) {
+
+            Spacer()
+
+            Image(systemName: "briefcase.fill")
+                .font(.system(size: 48))
+                .foregroundColor(AppColors.primary)
+
+            Text("Start your business")
+                .font(.title2.bold())
 
             Text(message)
                 .multilineTextAlignment(.center)
+                .foregroundColor(.secondary)
 
             if let infoMessage {
                 Text(infoMessage)
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
+            }
+
+            if showAuthCTA {
+                Button {
+                    goToAuth()
+                } label: {
+                    Text("Continue")
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(AppColors.primary)
+                        .foregroundColor(.white)
+                        .cornerRadius(14)
+                }
             }
 
             if showResendVerify {
                 Button("Resend verification email") {
                     resendVerification()
                 }
-                .buttonStyle(.bordered)
-            }
-
-            if showAuthCTA {
-                Button("Log in or Create account") {
-                    goToLogin()
-                }
-                .buttonStyle(.borderedProminent)
             }
 
             Button("Retry") {
                 loadBusiness()
             }
-            .buttonStyle(.bordered)
 
-            Button("Switch to Customer") {
+            Spacer()
+
+            Button {
                 authManager.setRole(.customer)
-                nav.reset()
+                nav.path = [.customerHome]
+            } label: {
+                Text("Switch to customer")
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(12)
             }
-            .buttonStyle(.bordered)
         }
         .padding()
     }
+}
 
-    // MARK: - Load business logic
+// MARK: - Actions
 
-    private func loadBusiness() {
+private extension BusinessGateView {
+
+    func goToAuth() {
+        authManager.requireFullLogin()
+        nav.path.append(.authEntry)
+    }
+
+    func resendVerification() {
+        Auth.auth().currentUser?.sendEmailVerification()
+        infoMessage = "Verification email sent."
+    }
+}
+
+// MARK: - Logic
+
+private extension BusinessGateView {
+
+    func loadBusiness() {
+
         errorMessage = nil
         infoMessage = nil
         showAuthCTA = false
@@ -100,63 +136,40 @@ struct BusinessGateView: View {
 
         guard let user = Auth.auth().currentUser else {
             isLoading = false
-            errorMessage = "Please sign in to manage a business."
+            errorMessage = "Create an account to start your business on LocalLink."
             showAuthCTA = true
             return
         }
 
-        // Anonymous users must upgrade
         if user.isAnonymous {
             isLoading = false
-            errorMessage = "Please create an account to manage a business."
+            errorMessage = "Create an account to start your business on LocalLink."
             showAuthCTA = true
             return
         }
 
-        // Must verify email
         if !user.isEmailVerified {
             isLoading = false
             errorMessage = "Please verify your email before managing a business."
             showResendVerify = true
-            infoMessage = "After verifying, return here and tap Retry."
             return
         }
 
-        // Auth OK — check for business ownership
         db.collection("businesses")
             .whereField("ownerId", isEqualTo: user.uid)
             .limit(to: 1)
-            .getDocuments { snapshot, error in
+            .getDocuments { snapshot, _ in
+
                 DispatchQueue.main.async {
-                    isLoading = false
-
-                    if let error {
-                        errorMessage = error.localizedDescription
-                        return
-                    }
-
-                    // Route once based on result
-                    nav.reset()
 
                     if snapshot?.documents.first != nil {
-                        nav.path.append(.businessHome)
+                        nav.path = [.businessHome]
                     } else {
-                        nav.path.append(.businessOnboarding)
+                        nav.path = [.businessOnboarding]
                     }
+
+                    isLoading = false
                 }
             }
-    }
-
-    // MARK: - Auth actions
-
-    private func goToLogin() {
-        authManager.requireFullLogin()
-        nav.path.append(.login)
-    }
-
-    private func resendVerification() {
-        guard let user = Auth.auth().currentUser else { return }
-        user.sendEmailVerification()
-        infoMessage = "Verification email sent. Check your inbox, then tap Retry."
     }
 }

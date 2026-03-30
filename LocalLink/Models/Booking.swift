@@ -9,7 +9,10 @@ struct Booking: Identifiable, Codable {
     let customerId: String
     let serviceId: String
     
-    // OPTIONAL display fields (may not exist in Firestore yet)
+    // 🔥 ADD THIS
+    let businessName: String?
+    
+    // OPTIONAL display fields
     let serviceName: String?
     let serviceDurationMinutes: Int?
     
@@ -31,6 +34,9 @@ struct Booking: Identifiable, Codable {
     
     let createdAt: Date?
     
+    let rating: String?
+    let ratedAt: Date?
+    
     // chat counters
     let unreadForCustomer: Int?
     let unreadForBusiness: Int?
@@ -38,8 +44,8 @@ struct Booking: Identifiable, Codable {
     // optional
     let slotId: String?
     
-    // computed helpers
-    // computed helpers
+    // MARK: - Computed helpers
+    
     var unreadCustomerCount: Int {
         unreadForCustomer ?? 0
     }
@@ -48,7 +54,8 @@ struct Booking: Identifiable, Codable {
         unreadForBusiness ?? 0
     }
     
-    // UI fallback helpers
+    // MARK: - UI helpers
+    
     var safeServiceName: String {
         serviceName ?? "Service"
     }
@@ -59,6 +66,10 @@ struct Booking: Identifiable, Codable {
     
     var safeCustomerName: String {
         customerName ?? "Customer"
+    }
+    
+    var safeBusinessName: String {
+        businessName ?? "Business"
     }
     
     var safeCustomerAddress: String {

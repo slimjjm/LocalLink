@@ -1,213 +1,339 @@
 import Foundation
+import StoreKit
 import FirebaseFunctions
-import FirebaseFirestore
-import StripePaymentSheet
-import UIKit
 
 @MainActor
 final class StaffUnlockViewModel: ObservableObject {
-
+    
+    // MARK: - Checkout State
+    
     enum CheckoutState {
-        case requiresPayment
-        case completedWithoutPayment
-        case failed
-    }
-
-    enum PayResult {
         case completed
         case canceled
-        case failed(String)
+        case failed
     }
-
+    
+    // MARK: - Plans
+    
+    enum SeatPlan: String, CaseIterable, Identifiable {
+        case one = "locallink.staff.1"
+        case three = "locallink.staff.3"
+        case five = "locallink.staff.5"
+        
+        var id: String { rawValue }
+        
+        var extraSeats: Int {
+            switch self {
+            case .one: return 1
+            case .three: return 3
+            case .five: return 5
+            }
+        }
+        
+        var title: String {
+            switch self {
+            case .one: return "Unlock 1 team member"
+            case .three: return "Unlock 3 team members"
+            case .five: return "Unlock 5 team members"
+            }
+        }
+        
+        var badge: String? {
+            switch self {
+            case .one: return nil
+            case .three: return "Most popular"
+            case .five: return "Best value"
+            }
+        }
+    }
+    
+    // MARK: - Published
+    
     @Published var isWorking = false
+    @Published var isLoadingProducts = false
     @Published var errorMessage: String?
-
+    
+    @Published var products: [Product] = []
+    
+    @Published var activeProductID: String?
+    @Published var activeExtraSeats: Int = 0
+    
+    @Published var isInGracePeriod = false   // ✅ NEW
+    @Published var renewalDate: Date?
+    @Published var pendingDowngradePlan: SeatPlan?
+    // MARK: - Private
+    
     private let functions = Functions.functions(region: "us-central1")
-    private let db = Firestore.firestore()
-
-    private var paymentSheet: PaymentSheet?
-
-    // We store the target businessId so we can confirm entitlement changes after payment.
+    private let productIDs = Set(SeatPlan.allCases.map(\.rawValue))
+    
     private var currentBusinessId: String?
-    private var expectedIncrementBy: Int = 1
-
-    // MARK: - Start checkout (calls Cloud Function)
-
-    func startCheckout(businessId: String, incrementBy: Int = 1) async -> CheckoutState {
-
-        isWorking = true
-        errorMessage = nil
-        defer { isWorking = false }
-
+    private var updatesTask: Task<Void, Never>?
+    
+    private var currentPlan: SeatPlan? {
+        guard let activeProductID else { return nil }
+        return SeatPlan(rawValue: activeProductID)
+    }
+    // MARK: - Setup
+    
+    func configure(businessId: String) async {
         currentBusinessId = businessId
-        expectedIncrementBy = max(1, incrementBy)
-
+        errorMessage = nil
+        
+        await loadProducts()
+        await refreshEntitlementsFromApple()
+        startTransactionListenerIfNeeded()
+    }
+    
+    deinit {
+        updatesTask?.cancel()
+    }
+    
+    // MARK: - Products
+    
+    func loadProducts() async {
+        isLoadingProducts = true
+        errorMessage = nil
+        
+        defer { isLoadingProducts = false }
+        
         do {
-            let result = try await functions
-                .httpsCallable("createOrIncrementStaffSubscription")
-                .call([
-                    "businessId": businessId,
-                    "incrementBy": expectedIncrementBy
-                ])
-
-            guard let data = result.data as? [String: Any] else {
-                errorMessage = "Invalid server response."
+            let loaded = try await Product.products(for: productIDs)
+            
+            products = loaded.sorted {
+                (SeatPlan(rawValue: $0.id)?.extraSeats ?? 0) <
+                (SeatPlan(rawValue: $1.id)?.extraSeats ?? 0)
+            }
+            
+        } catch {
+            errorMessage = "Unable to load App Store products: \(error.localizedDescription)"
+        }
+    }
+    
+    // MARK: - Purchase
+    
+    func purchase(plan: SeatPlan) async -> CheckoutState {
+        errorMessage = nil
+        
+        guard let businessId = currentBusinessId else {
+            errorMessage = "Missing business context."
+            return .failed
+        }
+        
+        if let currentPlan = currentPlan,
+           plan.extraSeats <= currentPlan.extraSeats {
+            errorMessage = "You already have this plan or higher."
+            return .failed
+        }
+        
+        guard let product = product(for: plan) else {
+            errorMessage = "Product not loaded."
+            return .failed
+        }
+        
+        isWorking = true
+        defer { isWorking = false }
+        
+        do {
+            let result = try await product.purchase()
+            
+            switch result {
+            case .success(let verification):
+                
+                let transaction = try checkVerified(verification)
+                
+                try await syncEntitlementToFirebase(
+                    businessId: businessId,
+                    transaction: transaction
+                )
+                
+                await refreshEntitlementsFromApple()
+                await transaction.finish()
+                
+                return .completed
+                
+            case .userCancelled:
+                return .canceled
+                
+            case .pending:
+                errorMessage = "Purchase pending approval."
+                return .failed
+                
+            @unknown default:
+                errorMessage = "Unknown purchase state."
                 return .failed
             }
-
-            let requiresPayment = data["requiresPayment"] as? Bool ?? false
-
-            // ✅ If Stripe auto-charged (no PaymentSheet)
-            if !requiresPayment {
-                // Still wait briefly for webhook to sync entitlements so UI updates
-                let ok = await waitForEntitlementsUpdate(businessId: businessId)
-                if !ok {
-                    // Not fatal — user paid/was charged, webhook may still be processing.
-                    // But we surface a soft message to reduce confusion.
-                    errorMessage = "Payment processed. Updating your seats… please refresh if it doesn’t update."
-                }
-                return .completedWithoutPayment
-            }
-
-            // ✅ Payment required: we must have these
-            guard
-                let customerId = data["customerId"] as? String,
-                let ephemeralKey = data["ephemeralKey"] as? String,
-                let clientSecret = data["clientSecret"] as? String
-            else {
-                errorMessage = "Missing payment parameters."
-                return .failed
-            }
-
-            var configuration = PaymentSheet.Configuration()
-            configuration.merchantDisplayName = "LocalLink"
-
-            configuration.applePay = .init(
-                merchantId: "merchant.com.locallink",
-                merchantCountryCode: "GB"
-            )
-
-            configuration.customer = .init(
-                id: customerId,
-                ephemeralKeySecret: ephemeralKey
-            )
-
-            configuration.allowsDelayedPaymentMethods = false
-
-            paymentSheet = PaymentSheet(
-                paymentIntentClientSecret: clientSecret,
-                configuration: configuration
-            )
-
-            return .requiresPayment
-
+            
         } catch {
             errorMessage = error.localizedDescription
             return .failed
         }
     }
-
-    // MARK: - Present payment sheet
-
-    func presentPayment(completion: @escaping (PayResult) -> Void) {
-
-        guard let paymentSheet else {
-            completion(.failed("Payment sheet not ready."))
-            return
+    
+    // MARK: - Restore
+    private func latestValidTransaction() async -> Transaction? {
+        
+        var best: Transaction?
+        var bestSeats = 0
+        
+        for await result in Transaction.currentEntitlements {
+            
+            guard let transaction = try? checkVerified(result) else { continue }
+            guard let plan = SeatPlan(rawValue: transaction.productID) else { continue }
+            
+            if transaction.revocationDate != nil { continue }
+            
+            if let expiry = transaction.expirationDate,
+               expiry < Date() {
+                continue
+            }
+            
+            if plan.extraSeats > bestSeats {
+                bestSeats = plan.extraSeats
+                best = transaction
+            }
         }
-
-        guard let viewController = topViewController() else {
-            completion(.failed("Unable to present checkout."))
-            return
-        }
-
+        
+        return best
+    }
+    func restorePurchases() async -> Bool {
         isWorking = true
-
-        paymentSheet.present(from: viewController) { [weak self] result in
-            guard let self else { return }
-
-            DispatchQueue.main.async {
-                self.isWorking = false
-
-                switch result {
-                case .completed:
-                    completion(.completed)
-                case .canceled:
-                    completion(.canceled)
-                case .failed(let error):
-                    completion(.failed(error.localizedDescription))
-                }
-            }
-        }
-    }
-
-    // MARK: - Call this after successful payment (or auto-charge)
-
-    func finalizeAfterSuccess() async -> Bool {
-        guard let businessId = currentBusinessId else { return true }
-        return await waitForEntitlementsUpdate(businessId: businessId)
-    }
-
-    // MARK: - Entitlements confirmation
-
-    /// Waits up to ~10 seconds for Firestore entitlements to reflect an update
-    /// (webhook lag protection so UI feels instant).
-    private func waitForEntitlementsUpdate(businessId: String) async -> Bool {
-
-        let ref = db.collection("businesses")
-            .document(businessId)
-            .collection("entitlements")
-            .document("default")
-
-        // Capture baseline before payment
-        var baselineExtra: Int = 0
+        errorMessage = nil
+        
+        defer { isWorking = false }
+        
         do {
-            let snap = try await ref.getDocument()
-            baselineExtra = (snap.data()?["extraStaffSlots"] as? Int) ?? 0
-        } catch {
-            // If we can't read baseline, still attempt to wait for any readable update
-            baselineExtra = 0
-        }
-
-        // Poll: 5 tries over ~10 seconds
-        let maxTries = 5
-        for attempt in 1...maxTries {
-            do {
-                let snap = try await ref.getDocument()
-                let data = snap.data() ?? [:]
-
-                let extra = (data["extraStaffSlots"] as? Int) ?? 0
-                let stripeStatus = (data["stripeStatus"] as? String) ?? ""
-
-                // Success conditions:
-                // - extra increased, OR
-                // - status is active (covers edge cases)
-                if extra >= baselineExtra + expectedIncrementBy || stripeStatus == "active" {
-                    return true
-                }
-            } catch {
-                // ignore and retry
+            try await AppStore.sync()
+            await refreshEntitlementsFromApple()
+            
+            if let businessId = currentBusinessId,
+               let transaction = await latestValidTransaction() {
+                
+                try await syncEntitlementToFirebase(
+                    businessId: businessId,
+                    transaction: transaction
+                )
             }
-
-            // Backoff sleep: 1.0s, 1.5s, 2.0s, 2.5s, 3.0s (approx)
-            let delayMs = 700 + (attempt * 500)
-            try? await Task.sleep(nanoseconds: UInt64(delayMs) * 1_000_000)
+            
+            return true
+            
+        } catch {
+            errorMessage = "Restore failed: \(error.localizedDescription)"
+            return false
         }
-
-        return false
     }
-
-    // MARK: - UIKit helper
-
-    private func topViewController() -> UIViewController? {
-        guard
-            let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-            let window = scene.windows.first(where: { $0.isKeyWindow }),
-            let root = window.rootViewController
-        else { return nil }
-
-        var top = root
-        while let presented = top.presentedViewController { top = presented }
-        return top
+    
+    func refreshEntitlementsFromApple() async {
+        
+        var bestPlan: SeatPlan?
+        var bestExpiry: Date?
+        var detectedGrace = false
+        
+        for await result in Transaction.currentEntitlements {
+            
+            guard let transaction = try? checkVerified(result) else { continue }
+            guard let plan = SeatPlan(rawValue: transaction.productID) else { continue }
+            
+            // Ignore revoked
+            if transaction.revocationDate != nil {
+                continue
+            }
+            
+            if let expiry = transaction.expirationDate {
+                
+                if expiry > Date() {
+                    
+                    // Active subscription
+                    if bestPlan == nil || plan.extraSeats > (bestPlan?.extraSeats ?? 0) {
+                        bestPlan = plan
+                        bestExpiry = expiry
+                    }
+                    
+                } else {
+                    // ⚠️ Possible grace (best effort)
+                    detectedGrace = true
+                }
+            }
+        }
+        
+        // ❌ REMOVE downgrade detection (not reliable with StoreKit)
+        
+        activeProductID = bestPlan?.rawValue
+        activeExtraSeats = bestPlan?.extraSeats ?? 0
+        
+        renewalDate = bestExpiry
+        pendingDowngradePlan = nil   // 👈 important
+        isInGracePeriod = detectedGrace
+    }
+    // MARK: - Listener
+    
+    private func startTransactionListenerIfNeeded() {
+        
+        guard updatesTask == nil else { return }
+        
+        updatesTask = Task { [weak self] in
+            guard let self else { return }
+            
+            for await result in Transaction.updates {
+                
+                guard !Task.isCancelled else { break }
+                guard let transaction = try? self.checkVerified(result) else { continue }
+                guard self.productIDs.contains(transaction.productID) else { continue }
+                
+                self.isWorking = true
+                
+                do {
+                    if let businessId = self.currentBusinessId {
+                        try await self.syncEntitlementToFirebase(
+                            businessId: businessId,
+                            transaction: transaction
+                        )
+                    }
+                    
+                    await self.refreshEntitlementsFromApple()
+                    await transaction.finish()
+                    
+                } catch {
+                    self.errorMessage = "Seat sync failed: \(error.localizedDescription)"
+                }
+                
+                self.isWorking = false
+            }
+        }
+    }
+    
+    // MARK: - Firebase
+    
+    private func syncEntitlementToFirebase(
+        businessId: String,
+        transaction: Transaction
+    ) async throws {
+        
+        _ = try await functions
+            .httpsCallable("verifyAppleSeatPurchase")
+            .call([
+                "businessId": businessId,
+                "productId": transaction.productID
+            ])
+    }
+    
+    // MARK: - Verification
+    
+    private func checkVerified<T>(_ result: VerificationResult<T>) throws -> T {
+        switch result {
+        case .unverified:
+            throw NSError(domain: "Verification", code: 1)
+        case .verified(let safe):
+            return safe
+        }
+    }
+    
+    // MARK: - Helpers
+    
+    func product(for plan: SeatPlan) -> Product? {
+        products.first(where: { $0.id == plan.rawValue })
+    }
+    
+    func isActive(plan: SeatPlan) -> Bool {
+        activeProductID == plan.rawValue
     }
 }

@@ -19,10 +19,8 @@ struct BusinessSearchRowView: View {
                 .foregroundColor(AppColors.charcoal)
 
             // MARK: Category + Town row
-
             HStack(spacing: 8) {
 
-                // Category badge
                 Text(business.category)
                     .font(.caption.weight(.medium))
                     .padding(.horizontal, 8)
@@ -36,9 +34,7 @@ struct BusinessSearchRowView: View {
                 Spacer()
 
                 HStack(spacing: 4) {
-
                     Image(systemName: "mappin.and.ellipse")
-
                     Text(business.town)
                 }
                 .font(.caption)
@@ -47,7 +43,7 @@ struct BusinessSearchRowView: View {
 
             Divider()
 
-            // MARK: Availability
+            // MARK: Availability (SIMPLE + RELIABLE)
 
             if let nextSlot {
 
@@ -68,11 +64,8 @@ struct BusinessSearchRowView: View {
                 }
 
                 Button {
-
                     // quick book action
-
                 } label: {
-
                     Text("Book \(nextSlot.formatted(date: .omitted, time: .shortened))")
                         .frame(maxWidth: .infinity)
                 }
@@ -81,9 +74,7 @@ struct BusinessSearchRowView: View {
             } else {
 
                 HStack {
-
                     ProgressView()
-
                     Text("Checking availability…")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -94,7 +85,6 @@ struct BusinessSearchRowView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
 
         // MARK: Card styling
-
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(.white)
@@ -105,8 +95,7 @@ struct BusinessSearchRowView: View {
                 )
         )
 
-        // MARK: Tap feedback animation
-
+        // MARK: Tap animation
         .scaleEffect(isPressed ? 0.97 : 1)
         .animation(.easeOut(duration: 0.12), value: isPressed)
 
@@ -118,6 +107,7 @@ struct BusinessSearchRowView: View {
                 .onEnded { _ in isPressed = false }
         )
 
+        // MARK: Load once (simple)
         .onAppear {
             loadNextSlot()
         }
@@ -127,9 +117,9 @@ struct BusinessSearchRowView: View {
 
     private func loadNextSlot() {
 
-        slotService.fetchNextSlot(
-            businessId: business.id ?? ""
-        ) { slot in
+        guard let id = business.id else { return }
+
+        slotService.fetchNextSlot(businessId: id) { slot in
 
             DispatchQueue.main.async {
                 self.nextSlot = slot

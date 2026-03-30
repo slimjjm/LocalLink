@@ -1,37 +1,51 @@
 import SwiftUI
 
 struct CustomerBusinessSearchView: View {
-
+    
     @State private var selectedCategory: BusinessCategory?
     @State private var selectedTown: SupportedTown?
-
+    
     var body: some View {
-
+        
         List {
-
-            // MARK: Category Section
-
+            
+            // MARK: - HEADER
+            
             Section {
-
-                ForEach(BusinessCategory.allCases, id: \.self) { category in
-
+                VStack(alignment: .leading, spacing: 6) {
+                    
+                    Text("Find the right service")
+                        .font(.headline)
+                    
+                    Text("Select a service and location to see available businesses.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
+            }
+            
+            // MARK: - CATEGORY
+            
+            Section("Service") {
+                
+                ForEach(BusinessCategory.allCases) { category in
+                    
                     Button {
-
                         selectedCategory = category
-
                     } label: {
-
-                        HStack {
-
-                            Label(
-                                category.rawValue,
-                                systemImage: category.icon
-                            )
-
+                        
+                        HStack(spacing: 12) {
+                            
+                            category.icon
+                                .font(.title3)
+                                .foregroundStyle(AppColors.primary)
+                            
+                            Text(category.rawValue)
+                                .foregroundColor(.primary)
+                            
                             Spacer()
-
+                            
                             if selectedCategory == category {
-
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundColor(AppColors.primary)
                             }
@@ -41,35 +55,29 @@ struct CustomerBusinessSearchView: View {
                     }
                     .buttonStyle(.plain)
                 }
-
-            } header: {
-
-                Text("Service")
             }
-
-            // MARK: Town Section
-
-            Section {
-
-                ForEach(SupportedTown.allCases, id: \.self) { town in
-
+            
+            // MARK: - TOWN
+            
+            Section("Location") {
+                
+                ForEach(SupportedTown.allCases) { town in
+                    
                     Button {
-
                         selectedTown = town
-
                     } label: {
-
-                        HStack {
-
-                            Label(
-                                town.rawValue,
-                                systemImage: "map"
-                            )
-
+                        
+                        HStack(spacing: 12) {
+                            
+                            Image(systemName: "map")
+                                .foregroundStyle(AppColors.primary)
+                            
+                            Text(town.rawValue)
+                                .foregroundColor(.primary)
+                            
                             Spacer()
-
+                            
                             if selectedTown == town {
-
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundColor(AppColors.primary)
                             }
@@ -79,41 +87,38 @@ struct CustomerBusinessSearchView: View {
                     }
                     .buttonStyle(.plain)
                 }
-
-            } header: {
-
-                Text("Town")
             }
-
-            // MARK: Search Button
-
+            
+            // MARK: - SEARCH CTA
+            
             Section {
-
+                
                 NavigationLink {
-
+                    
                     BusinessListView(
                         town: selectedTown?.rawValue,
                         category: selectedCategory?.rawValue
                     )
-
+                    
                 } label: {
-
-                    HStack {
-
+                    
+                    HStack(spacing: 12) {
+                        
                         Image(systemName: "magnifyingglass")
-
-                        Text("Search")
-
+                        
+                        Text(formIsValid
+                             ? "Show available services"
+                             : "Select service and location")
+                        
                         Spacer()
-
+                        
                         Image(systemName: "chevron.right")
                             .foregroundColor(.secondary)
                     }
                     .font(.headline)
-                    .padding(.vertical, 6)
+                    .padding(.vertical, 8)
                 }
                 .disabled(!formIsValid)
-
             }
         }
         .listStyle(.insetGrouped)
@@ -122,9 +127,10 @@ struct CustomerBusinessSearchView: View {
         .navigationTitle("Search")
         .navigationBarTitleDisplayMode(.inline)
     }
-
+    
+    // MARK: - VALIDATION
+    
     private var formIsValid: Bool {
-
         selectedCategory != nil && selectedTown != nil
     }
 }

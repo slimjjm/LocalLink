@@ -14,7 +14,7 @@ struct RoleSelectionView: View {
 
             VStack(spacing: 14) {
 
-                Image("AppIcon")
+                Image("AppLogo")
                     .resizable()
                     .scaledToFit()
                     .frame(width: 80, height: 80)

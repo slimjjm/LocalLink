@@ -2,6 +2,64 @@ import SwiftUI
 import FirebaseFirestore
 import FirebaseFirestoreSwift
 
+
+struct SlotFilterEngine {
+    
+    static func validStartTimes(
+        slotToStaff: [Date: [(slotId: String, staff: Staff)]],
+        durationMinutes: Int
+    ) -> [Date] {
+        
+        let sorted = slotToStaff.keys.sorted()
+        let requiredSlots = durationMinutes / 30
+        
+        guard requiredSlots > 0 else { return [] }
+        
+        var valid: [Date] = []
+        
+        for i in 0..<sorted.count {
+            
+            var isValid = true
+            
+            for j in 0..<requiredSlots {
+                
+                let index = i + j
+                
+                if index >= sorted.count {
+                    isValid = false
+                    break
+                }
+                
+                let current = sorted[index]
+                
+                // must exist
+                guard slotToStaff[current] != nil else {
+                    isValid = false
+                    break
+                }
+                
+                // must be continuous
+                if j > 0 {
+                    let prev = sorted[index - 1]
+                    let expected = prev.addingTimeInterval(60 * 30)
+                    
+                    if current != expected {
+                        isValid = false
+                        break
+                    }
+                }
+            }
+            
+            if isValid {
+                valid.append(sorted[i])
+            }
+        }
+        
+        return valid
+    }
+}
+
+
 struct TimeSlotSelectorView: View {
     
     let businessId: String
@@ -115,7 +173,10 @@ struct TimeSlotSelectorView: View {
     }
     
     private var sortedSlots: [Date] {
-        slotToStaff.keys.sorted()
+        SlotFilterEngine.validStartTimes(
+            slotToStaff: slotToStaff,
+            durationMinutes: service.durationMinutes
+        )
     }
     
     // MARK: - Load PRE-GENERATED SAFE SLOTS ONLY

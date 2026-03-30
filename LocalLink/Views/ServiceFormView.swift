@@ -10,10 +10,15 @@ struct ServiceFormView: View {
     let existingService: BusinessService?   // nil = Add, non-nil = Edit
 
     // MARK: - Form Fields
+
     @State private var name = ""
     @State private var details = ""
     @State private var priceText = ""
-    @State private var durationText = ""
+
+    // 🔥 NEW duration system
+    @State private var durationHours = 1
+    @State private var durationMinutesPart = 0
+
     @State private var isActive = true
 
     // UI State
@@ -26,6 +31,8 @@ struct ServiceFormView: View {
     var body: some View {
         Form {
 
+            // MARK: - DELETE (EDIT MODE ONLY)
+
             if existingService != nil {
                 Section {
                     Button("Delete Service", role: .destructive) {
@@ -33,6 +40,8 @@ struct ServiceFormView: View {
                     }
                 }
             }
+
+            // MARK: - SERVICE INFO
 
             Section("Service Info") {
 
@@ -44,17 +53,32 @@ struct ServiceFormView: View {
                 TextField("Price (£)", text: $priceText)
                     .keyboardType(.decimalPad)
 
-                TextField("Duration (minutes)", text: $durationText)
-                    .keyboardType(.numberPad)
-
                 Toggle("Active", isOn: $isActive)
             }
+
+            // MARK: - DURATION (🔥 KEY UPGRADE)
+
+            Section("Duration") {
+
+                DurationPickerRow(
+                    hours: $durationHours,
+                    minutes: $durationMinutesPart
+                )
+
+                Text("\(durationHours)h \(durationMinutesPart)m total")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+
+            // MARK: - ERROR
 
             if !localError.isEmpty {
                 Text(localError)
                     .foregroundColor(.red)
                     .font(.caption)
             }
+
+            // MARK: - SAVE BUTTON
 
             Button(existingService == nil ? "Add Service" : "Save Changes") {
                 saveTapped()
@@ -76,15 +100,44 @@ struct ServiceFormView: View {
         }
     }
 
+    // MARK: - PRESET BUTTON
+
+    private func presetButton(_ title: String, _ h: Int, _ m: Int) -> some View {
+        Button {
+            durationHours = h
+            durationMinutesPart = m
+        } label: {
+            Text(title)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.gray.opacity(0.15))
+                .cornerRadius(8)
+        }
+    }
+
+    // MARK: - COMPUTED DURATION
+
+    private var totalDurationMinutes: Int {
+        (durationHours * 60) + durationMinutesPart
+    }
+
+    // MARK: - LOAD EXISTING
+
     private func loadExistingIfNeeded() {
         guard let service = existingService else { return }
 
         name = service.name
         details = service.details ?? ""
         priceText = String(format: "%.2f", service.price)
-        durationText = String(service.durationMinutes)
         isActive = service.isActive ?? true
+
+        // 🔥 Convert minutes → hours + minutes
+        let total = service.durationMinutes
+        durationHours = total / 60
+        durationMinutesPart = total % 60
     }
+
+    // MARK: - SAVE
 
     private func saveTapped() {
         localError = ""
@@ -99,8 +152,8 @@ struct ServiceFormView: View {
             return
         }
 
-        guard let durationMinutes = Int(durationText) else {
-            localError = "Please enter a valid duration."
+        guard totalDurationMinutes > 0 else {
+            localError = "Please select a valid duration."
             return
         }
 
@@ -110,9 +163,11 @@ struct ServiceFormView: View {
             "name": name,
             "details": details.isEmpty ? NSNull() : details,
             "price": price,
-            "durationMinutes": durationMinutes,
+            "durationMinutes": totalDurationMinutes, // ✅ still minutes
             "isActive": isActive,
-            "createdAt": existingService == nil ? FieldValue.serverTimestamp() : (existingService?.createdAt as Any)
+            "createdAt": existingService == nil
+                ? FieldValue.serverTimestamp()
+                : (existingService?.createdAt as Any)
         ]
 
         let servicesRef = db
@@ -123,17 +178,25 @@ struct ServiceFormView: View {
         if let service = existingService, let id = service.id {
             servicesRef.document(id).setData(data, merge: true) { error in
                 isSaving = false
-                if let error { localError = error.localizedDescription; return }
+                if let error {
+                    localError = error.localizedDescription
+                    return
+                }
                 dismiss()
             }
         } else {
             servicesRef.addDocument(data: data) { error in
                 isSaving = false
-                if let error { localError = error.localizedDescription; return }
+                if let error {
+                    localError = error.localizedDescription
+                    return
+                }
                 dismiss()
             }
         }
     }
+
+    // MARK: - DELETE
 
     private func deleteTapped() {
         guard let service = existingService, let id = service.id else { return }
@@ -147,4 +210,3 @@ struct ServiceFormView: View {
             }
     }
 }
-

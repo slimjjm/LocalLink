@@ -7,12 +7,6 @@ final class AvailabilityGenerator {
     private let db = Firestore.firestore()
     private let calendar = Calendar.current
 
-    private static let isoFormatter: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
-
     // =================================================
     // GENERATE AVAILABILITY FROM A SPECIFIC DATE
     // =================================================
@@ -36,26 +30,60 @@ final class AvailabilityGenerator {
         let availabilityCollection = staffRef.collection("availability")
         let slotCollection = staffRef.collection("availableSlots")
 
+        // ============================
+        // FETCH WEEKLY CONFIG
+        // ============================
+
         let weekSnap = try await staffRef
             .collection("weeklyAvailability")
             .getDocuments()
 
         var weekly: [String: [String: Any]] = [:]
-        weekSnap.documents.forEach { weekly[$0.documentID] = $0.data() }
+
+        weekSnap.documents.forEach {
+            weekly[$0.documentID.lowercased()] = $0.data()
+        }
 
         let baseDay = calendar.startOfDay(for: startDate)
 
         var batch = db.batch()
         var writeCount = 0
 
+        // =================================================
+        // LOOP DAYS
+        // =================================================
+
         for offset in 0..<numberOfDays {
 
-            guard let day = calendar.date(byAdding: .day, value: offset, to: baseDay) else { continue }
+            guard let day = calendar.date(byAdding: .day, value: offset, to: baseDay) else {
+                continue
+            }
 
             let startOfDay = calendar.startOfDay(for: day)
             let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
 
-            let weekday = day.weekdayKey
+            // ============================
+            // DELETE OLD SLOTS FOR THIS DAY
+            // ============================
+
+            let existingSlots = try await slotCollection
+                .whereField("startTime", isGreaterThanOrEqualTo: Timestamp(date: startOfDay))
+                .whereField("startTime", isLessThan: Timestamp(date: endOfDay))
+                .getDocuments()
+
+            for doc in existingSlots.documents {
+                batch.deleteDocument(doc.reference)
+                writeCount += 1
+            }
+
+            // ============================
+            // WEEKDAY CONFIG
+            // ============================
+
+            let weekday = DayKey.fromCalendarWeekday(
+                calendar.component(.weekday, from: day)
+            ).rawValue
+
             guard let config = weekly[weekday] else { continue }
 
             let closed = (config["closed"] as? Bool) ?? false
@@ -70,7 +98,7 @@ final class AvailabilityGenerator {
             else { continue }
 
             // ============================
-            // STAFF DAY BLOCK
+            // DAY BLOCK CHECK
             // ============================
 
             let dayBlockSnap = try await staffRef
@@ -82,11 +110,14 @@ final class AvailabilityGenerator {
             if !dayBlockSnap.documents.isEmpty { continue }
 
             // ============================
-            // STAFF TIME BLOCKS
+            // TIME BLOCKS
             // ============================
 
-            let timeBlockSnap = try await staffRef
+            let timeBlockSnap = try await db
+                .collection("businesses")
+                .document(businessId)
                 .collection("timeBlocks")
+                .whereField("staffId", isEqualTo: staffId)
                 .whereField("startDate", isLessThan: Timestamp(date: endOfDay))
                 .whereField("endDate", isGreaterThan: Timestamp(date: startOfDay))
                 .getDocuments()
@@ -118,7 +149,11 @@ final class AvailabilityGenerator {
 
             while slotStart < endTime {
 
-                guard let slotEnd = calendar.date(byAdding: .minute, value: intervalMinutes, to: slotStart) else { break }
+                guard let slotEnd = calendar.date(
+                    byAdding: .minute,
+                    value: intervalMinutes,
+                    to: slotStart
+                ) else { break }
 
                 let overlaps = timeBlocks.contains {
                     slotStart < $0.endDate && slotEnd > $0.startDate
@@ -127,7 +162,6 @@ final class AvailabilityGenerator {
                 if !overlaps {
 
                     let slotId = SlotID.make(from: slotStart)
-
                     let slotRef = slotCollection.document(slotId)
 
                     batch.setData([
@@ -136,7 +170,7 @@ final class AvailabilityGenerator {
                         "startTime": Timestamp(date: slotStart),
                         "endTime": Timestamp(date: slotEnd),
                         "isBooked": false
-                    ], forDocument: slotRef)
+                    ], forDocument: slotRef, merge: true)
 
                     writeCount += 1
                 }
@@ -151,24 +185,52 @@ final class AvailabilityGenerator {
             }
         }
 
+        // ============================
+        // FINAL COMMIT
+        // ============================
+
         if writeCount > 0 {
             try await batch.commit()
         }
+
+        // ============================
+        // UPDATE GENERATED UNTIL META
+        // ============================
+
+        let generatedUntil = calendar.date(
+            byAdding: .day,
+            value: numberOfDays,
+            to: baseDay
+        ) ?? baseDay
+
+        try await staffRef
+            .collection("meta")
+            .document("availability")
+            .setData([
+                "generatedUntil": Timestamp(date: generatedUntil),
+                "updatedAt": FieldValue.serverTimestamp()
+            ], merge: true)
     }
 
     // =================================================
-    // HELPER
+    // TIME HELPER
     // =================================================
 
     private func makeDate(on day: Date, timeHHmm: String) -> Date? {
 
         let parts = timeHHmm.split(separator: ":")
 
-        guard parts.count == 2,
-              let h = Int(parts[0]),
-              let m = Int(parts[1])
+        guard
+            parts.count == 2,
+            let hour = Int(parts[0]),
+            let minute = Int(parts[1])
         else { return nil }
 
-        return calendar.date(bySettingHour: h, minute: m, second: 0, of: day)
+        return calendar.date(
+            bySettingHour: hour,
+            minute: minute,
+            second: 0,
+            of: day
+        )
     }
 }

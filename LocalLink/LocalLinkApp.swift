@@ -7,15 +7,18 @@ import StripePayments
 @main
 struct LocalLinkApp: App {
 
-    // Needed for Google Sign-In + Firebase
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
 
     @StateObject private var nav = NavigationState()
     @StateObject private var authManager = AuthManager()
 
+    // ✅ ADD THIS
+    @StateObject private var notificationRouter = NotificationRouter.shared
+
+    @Environment(\.scenePhase) private var scenePhase
+
     init() {
-        // Configure Stripe with your TEST publishable key
-        StripeAPI.defaultPublishableKey = "pk_test_51SglXq2fXPPaIIVVjyW1MvaYm3owf9CBHeVGJILTn41zd3d3OX59fzYPZ5ZeIqtkXBoyyJGB9z0JQNg0D5vo0CqK00YFUZVaj3"
+        StripeAPI.defaultPublishableKey = "pk_live_..."
     }
 
     var body: some Scene {
@@ -23,6 +26,16 @@ struct LocalLinkApp: App {
             RootView()
                 .environmentObject(nav)
                 .environmentObject(authManager)
+                .environmentObject(notificationRouter) // ✅ ADD THIS
+                .onOpenURL { url in
+                    print("🔥 Stripe return URL:", url)
+                    NotificationCenter.default.post(name: .stripeReturn, object: nil)
+                }
+        }
+        .onChange(of: scenePhase) { newPhase in
+            if newPhase == .active {
+                NotificationCenter.default.post(name: .stripeReturn, object: nil)
+            }
         }
     }
 }

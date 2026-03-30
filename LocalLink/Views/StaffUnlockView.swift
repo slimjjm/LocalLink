@@ -1,113 +1,184 @@
 import SwiftUI
-import StripePaymentSheet
 
 struct StaffUnlockView: View {
-
+    
     let businessId: String
     let onSuccess: () -> Void
-
+    
     @Environment(\.dismiss) private var dismiss
     @StateObject private var vm = StaffUnlockViewModel()
-
+    
     var body: some View {
         NavigationView {
-            VStack(spacing: 16) {
-
+            VStack(spacing: 20) {
+                
+                // MARK: - Header
+                
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Unlock more staff")
                         .font(.title2)
                         .fontWeight(.semibold)
-
-                    Text("Add an extra staff slot for £4.99 per month. You can increase or change this model later without rebuilding your gate logic.")
+                    
+                    Text("Choose a plan to unlock more team members. Billing is handled securely through Apple.")
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-
+                
                 Divider()
-
-                VStack(spacing: 12) {
-
-                    Button {
-                        Task { await unlockOneSeat() }
-                    } label: {
-                        if vm.isWorking {
-                            HStack {
-                                Spacer()
-                                ProgressView()
-                                Spacer()
-                            }
-                            .padding(.vertical, 12)
-                        } else {
-                            Text("Unlock 1 staff slot (£4.99/month)")
-                                .fontWeight(.semibold)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                        }
+                
+                // MARK: - Content
+                
+                if vm.isLoadingProducts {
+                    
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("Loading plans…")
+                            .foregroundColor(.secondary)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(vm.isWorking)
-
-                    Text("This purchase is enforced server-side. Staff creation is blocked unless your entitlements allow it.")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
+                    .frame(maxHeight: .infinity)
+                    
+                } else {
+                    
+                    ScrollView {
+                        VStack(spacing: 14) {
+                            ForEach(StaffUnlockViewModel.SeatPlan.allCases) { plan in
+                                planCard(plan)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
                 }
-
-                if let err = vm.errorMessage {
-                    Text(err)
+                
+                // MARK: - Error
+                
+                if let error = vm.errorMessage {
+                    Text(error)
+                        .font(.footnote)
                         .foregroundColor(.red)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-
-                Spacer()
+                
+                // MARK: - Restore
+                
+                Button {
+                    Task {
+                        let restored = await vm.restorePurchases()
+                        if restored {
+                            onSuccess()
+                        }
+                    }
+                } label: {
+                    Text("Restore Purchases")
+                        .font(.footnote.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+                .buttonStyle(.bordered)
+                .disabled(vm.isWorking)
             }
             .padding()
             .navigationTitle("Upgrade")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Close") { dismiss() }
+                    Button("Close") {
+                        dismiss()
+                    }
                 }
+            }
+            .task {
+                await vm.configure(businessId: businessId)
             }
         }
     }
-
-    // MARK: - Flow
-
-    private func unlockOneSeat() async {
-        let state = await vm.startCheckout(businessId: businessId, incrementBy: 1)
-        print("🧠 Checkout state:", state)
-
-        switch state {
-
-        case .requiresPayment:
-            // presentPayment is callback-based; don't await it
-            vm.presentPayment { result in
-                switch result {
-
-                case .completed:
-                    Task {
-                        _ = await vm.finalizeAfterSuccess()
+    
+    // MARK: - Plan Card
+    
+    @ViewBuilder
+    private func planCard(_ plan: StaffUnlockViewModel.SeatPlan) -> some View {
+        
+        let product = vm.product(for: plan)
+        let isActive = vm.isActive(plan: plan)
+        
+        VStack(alignment: .leading, spacing: 12) {
+            
+            // Title + price
+            
+            HStack(alignment: .top) {
+                
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(plan.title)
+                        .font(.headline)
+                    
+                    if let badge = plan.badge {
+                        Text(badge)
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Color.blue.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+                }
+                
+                Spacer()
+                
+                Text(product?.displayPrice ?? "—")
+                    .font(.title3.weight(.semibold))
+            }
+            
+            // Description
+            
+            Text("Adds \(plan.extraSeats) extra staff slot\(plan.extraSeats == 1 ? "" : "s") to your business.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            
+            // Button
+            
+            Button {
+                Task {
+                    let result = await vm.purchase(plan: plan)
+                    
+                    switch result {
+                    case .completed:
                         onSuccess()
                         dismiss()
+                        
+                    case .canceled:
+                        break
+                        
+                    case .failed:
+                        break
                     }
-
-                case .canceled:
-                    break
-
-                case .failed(let message):
-                    vm.errorMessage = message
                 }
+            } label: {
+                HStack {
+                    Spacer()
+                    
+                    if vm.isWorking {
+                        ProgressView()
+                    } else if isActive {
+                        Text("Current Plan")
+                            .fontWeight(.semibold)
+                    } else {
+                        Text("Choose Plan")
+                            .fontWeight(.semibold)
+                    }
+                    
+                    Spacer()
+                }
+                .padding(.vertical, 12)
             }
-
-        case .completedWithoutPayment:
-            // Auto-charged or no immediate payment UI needed — still wait for webhook sync
-            _ = await vm.finalizeAfterSuccess()
-            onSuccess()
-            dismiss()
-
-        case .failed:
-            break
+            .buttonStyle(.borderedProminent)
+            .disabled(vm.isWorking || product == nil || isActive)
         }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.secondarySystemBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(isActive ? Color.green : Color.clear, lineWidth: 2)
+        )
     }
 }

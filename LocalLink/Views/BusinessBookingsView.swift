@@ -5,7 +5,6 @@ struct BusinessBookingsView: View {
     let businessId: String
     
     @StateObject private var viewModel = BusinessBookingsViewModel()
-    
     @State private var referenceToday = Date().localMidnight()
     
     // MARK: - Date Helpers
@@ -15,7 +14,7 @@ struct BusinessBookingsView: View {
     }
     
     private var tomorrow: Date {
-        Calendar.current.date(byAdding: .day, value: 1, to: referenceToday)!
+        Calendar.current.date(byAdding: .day, value: 1, to: referenceToday) ?? referenceToday
     }
     
     // MARK: - Booking Groups
@@ -47,152 +46,105 @@ struct BusinessBookingsView: View {
         
         List {
             
-            // Loading
-            
             if viewModel.isLoading {
-                
-                HStack {
-                    Spacer()
-                    ProgressView("Loading bookings…")
-                    Spacer()
-                }
+                loadingSection
             }
-            
-            // Error
             
             if let error = viewModel.errorMessage {
-                
-                Text(error)
-                    .foregroundColor(AppColors.error)
+                errorSection(error)
             }
-            
-            // Today
             
             if !todayBookings.isEmpty {
-                
-                Section("Today") {
-                    
-                    ForEach(todayBookings) { booking in
-                        
-                        NavigationLink {
-                            
-                            BookingChatView(
-                                bookingId: booking.id ?? "",
-                                businessId: booking.businessId,
-                                customerId: booking.customerId,
-                                currentUserRole: "business"
-                            )
-                            
-                        } label: {
-                            
-                            BusinessBookingRowView(
-                                booking: booking,
-                                onCancelled: {
-                                    viewModel.loadBookings(for: businessId)
-                                }
-                            )
-                        }
-                    }
-                }
+                bookingSection(title: "Today", bookings: todayBookings)
             }
-            
-            // Tomorrow
             
             if !tomorrowBookings.isEmpty {
-                
-                Section("Tomorrow") {
-                    
-                    ForEach(tomorrowBookings) { booking in
-                        
-                        NavigationLink {
-                            
-                            BookingChatView(
-                                bookingId: booking.id ?? "",
-                                businessId: booking.businessId,
-                                customerId: booking.customerId,
-                                currentUserRole: "business"
-                            )
-                            
-                        } label: {
-                            
-                            BusinessBookingRowView(
-                                booking: booking,
-                                onCancelled: {
-                                    viewModel.loadBookings(for: businessId)
-                                }
-                            )
-                        }
-                    }
-                }
+                bookingSection(title: "Tomorrow", bookings: tomorrowBookings)
             }
-            
-            // Future
             
             if !futureBookings.isEmpty {
-                
-                Section("Future bookings") {
-                    
-                    ForEach(futureBookings) { booking in
-                        
-                        NavigationLink {
-                            
-                            BookingChatView(
-                                bookingId: booking.id ?? "",
-                                businessId: booking.businessId,
-                                customerId: booking.customerId,
-                                currentUserRole: "business"
-                            )
-                            
-                        } label: {
-                            
-                            BusinessBookingRowView(
-                                booking: booking,
-                                onCancelled: {
-                                    viewModel.loadBookings(for: businessId)
-                                }
-                            )
-                        }
-                    }
-                }
+                bookingSection(title: "Future bookings", bookings: futureBookings)
             }
-            
-            // Past
             
             if !viewModel.past.isEmpty {
-                
-                Section("Past bookings") {
-                    
-                    ForEach(viewModel.past) { booking in
-                        
-                        BusinessBookingRowView(
-                            booking: booking,
-                            onCancelled: {
-                                viewModel.loadBookings(for: businessId)
-                            }
-                        )
-                    }
-                }
+                pastBookingsSection
             }
             
-            // Empty State
-            
-            if !viewModel.isLoading &&
-                todayBookings.isEmpty &&
-                tomorrowBookings.isEmpty &&
-                futureBookings.isEmpty &&
-                viewModel.past.isEmpty {
-                
-                ContentUnavailableView(
-                    "No bookings yet",
-                    systemImage: "calendar",
-                    description: Text("New bookings will appear here.")
-                )
+            if shouldShowEmptyState {
+                emptyStateSection
             }
         }
         .navigationTitle("Bookings")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            referenceToday = Date().localMidnight()
             viewModel.loadBookings(for: businessId)
         }
+    }
+    
+    // MARK: - Sections
+    
+    private var loadingSection: some View {
+        HStack {
+            Spacer()
+            ProgressView("Loading bookings…")
+            Spacer()
+        }
+    }
+    
+    private func errorSection(_ error: String) -> some View {
+        Text(error)
+            .foregroundColor(AppColors.error)
+    }
+    
+    private func bookingSection(title: String, bookings: [Booking]) -> some View {
+        Section(title) {
+            ForEach(bookings) { booking in
+                NavigationLink {
+                    BookingChatView(
+                        bookingId: booking.id ?? "",
+                        businessId: booking.businessId,
+                        customerId: booking.customerId,
+                        currentUserRole: "business"
+                    )
+                } label: {
+                    BusinessBookingRowView(
+                        booking: booking,
+                        onCancelled: {
+                            viewModel.loadBookings(for: businessId)
+                        }
+                    )
+                }
+            }
+        }
+    }
+    
+    private var pastBookingsSection: some View {
+        Section("Past bookings") {
+            ForEach(viewModel.past) { booking in
+                BusinessBookingRowView(
+                    booking: booking,
+                    onCancelled: {
+                        viewModel.loadBookings(for: businessId)
+                    }
+                )
+            }
+        }
+    }
+    
+    private var emptyStateSection: some View {
+        ContentUnavailableView(
+            "No bookings yet",
+            systemImage: "calendar",
+            description: Text("New bookings will appear here.")
+        )
+    }
+    
+    private var shouldShowEmptyState: Bool {
+        !viewModel.isLoading &&
+        todayBookings.isEmpty &&
+        tomorrowBookings.isEmpty &&
+        futureBookings.isEmpty &&
+        viewModel.past.isEmpty
     }
 }

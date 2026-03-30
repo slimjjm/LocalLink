@@ -12,4 +12,12 @@ final class NavigationState: ObservableObject {
     func setRoot(_ route: AppRoute) {
         path = [route]
     }
+
+    func push(_ route: AppRoute) {
+        path.append(route)
+    }
+
+    func pop() {
+        _ = path.popLast()
+    }
 }

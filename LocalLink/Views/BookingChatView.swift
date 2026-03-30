@@ -13,6 +13,9 @@ struct BookingChatView: View {
     @State private var messages: [BookingMessage] = []
     @State private var newMessage: String = ""
     @State private var listener: ListenerRegistration?
+    @State private var bookingListener: ListenerRegistration?
+
+    @State private var booking: Booking?
 
     private let db = Firestore.firestore()
     private let repo = BookingChatRepository()
@@ -43,10 +46,11 @@ struct BookingChatView: View {
 
             messageInputBar
         }
-        .navigationTitle("Chat")
+        .navigationTitle(chatTitle)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             startListening()
+            startBookingListener()
             resetUnreadCounter()
         }
         .onDisappear {
@@ -54,7 +58,20 @@ struct BookingChatView: View {
         }
     }
 
-    // MARK: - Input Bar
+    // MARK: - Chat Title
+
+    private var chatTitle: String {
+
+        guard let booking else { return "Chat" }
+
+        if currentUserRole == "customer" {
+            return booking.businessName ?? "Business"
+        } else {
+            return booking.customerName ?? "Customer"
+        }
+    }
+
+    // MARK: - Input
 
     private var messageInputBar: some View {
 
@@ -67,12 +84,11 @@ struct BookingChatView: View {
                 send()
             }
             .disabled(newMessage.trimmingCharacters(in: .whitespaces).isEmpty)
-
         }
         .padding()
     }
 
-    // MARK: - Message Bubble
+    // MARK: - Bubble
 
     private func messageBubble(_ message: BookingMessage) -> some View {
 
@@ -84,7 +100,7 @@ struct BookingChatView: View {
 
             Text(message.text)
                 .padding()
-                .background(isMe ? Color.blue : Color.gray.opacity(0.2))
+                .background(isMe ? AppColors.primary : Color(.secondarySystemBackground))
                 .foregroundColor(isMe ? .white : .primary)
                 .cornerRadius(12)
 
@@ -92,7 +108,7 @@ struct BookingChatView: View {
         }
     }
 
-    // MARK: - Firestore Listener
+    // MARK: - Listeners
 
     private func startListening() {
 
@@ -104,19 +120,36 @@ struct BookingChatView: View {
 
                 guard let documents = snapshot?.documents else { return }
 
-                self.messages = documents.compactMap {
-                    try? $0.data(as: BookingMessage.self)
+                DispatchQueue.main.async {
+                    self.messages = documents.compactMap {
+                        try? $0.data(as: BookingMessage.self)
+                    }
+                }
+            }
+    }
+
+    private func startBookingListener() {
+
+        bookingListener = db.collection("bookings")
+            .document(bookingId)
+            .addSnapshotListener { snapshot, _ in
+
+                guard let snapshot else { return }
+
+                DispatchQueue.main.async {
+                    self.booking = try? snapshot.data(as: Booking.self)
                 }
             }
     }
 
     private func stopListening() {
-
         listener?.remove()
+        bookingListener?.remove()
         listener = nil
+        bookingListener = nil
     }
 
-    // MARK: - Send Message
+    // MARK: - Send
 
     private func send() {
 
@@ -124,7 +157,6 @@ struct BookingChatView: View {
 
         guard !trimmed.isEmpty, trimmed.count <= 2000 else { return }
 
-        // Instant local message for smoother UX
         let tempMessage = BookingMessage(
             id: UUID().uuidString,
             senderId: Auth.auth().currentUser?.uid ?? "",
@@ -143,34 +175,27 @@ struct BookingChatView: View {
             senderRole: currentUserRole
         ) { result in
 
-            switch result {
-
-            case .success:
-                newMessage = ""
-
-            case .failure(let error):
-                print("Chat send error:", error)
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    newMessage = ""
+                case .failure(let error):
+                    print("Chat send error:", error)
+                }
             }
         }
     }
 
-    // MARK: - Reset Unread Counter
+    // MARK: - Unread Reset
 
     private func resetUnreadCounter() {
 
         let bookingRef = db.collection("bookings").document(bookingId)
 
         if currentUserRole == "customer" {
-
-            bookingRef.updateData([
-                "unreadForCustomer": 0
-            ])
-
+            bookingRef.updateData(["unreadForCustomer": 0])
         } else {
-
-            bookingRef.updateData([
-                "unreadForBusiness": 0
-            ])
+            bookingRef.updateData(["unreadForBusiness": 0])
         }
     }
 }

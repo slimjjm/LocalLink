@@ -186,14 +186,14 @@ struct WeeklyAvailabilityEditView: View {
         formatter.locale = Locale(identifier: "en_GB")
 
         let week = Dictionary(uniqueKeysWithValues: days.map {
-            (
-                $0.key.rawValue,
-                StaffDayAvailability(
-                    open: formatter.string(from: $0.openTime),
-                    close: formatter.string(from: $0.closeTime),
-                    closed: $0.closed
-                )
+        (
+            $0.key.rawValue.lowercased(),
+            StaffDayAvailability(
+                open: formatter.string(from: $0.openTime),
+                close: formatter.string(from: $0.closeTime),
+                closed: $0.closed
             )
+        )
         })
 
         repo.saveWeek(businessId: businessId, staffId: staffId, week: week) { result in

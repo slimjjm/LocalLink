@@ -16,6 +16,8 @@ final class BusinessProfileEditViewModel: ObservableObject {
     @Published var selectedServiceTowns: Set<SupportedTown> = []
 
     @Published var isActive: Bool = true
+    @Published var bio: String = ""
+    @Published var photoURLs: [String] = []   // ✅ FIXED + USED
 
     // Geo
     @Published var latitude: Double?
@@ -53,6 +55,8 @@ final class BusinessProfileEditViewModel: ObservableObject {
                     self.selectedTown = SupportedTown(rawValue: town)
                 }
 
+                self.bio = data["bio"] as? String ?? ""
+
                 self.isMobile = data["isMobile"] as? Bool ?? false
 
                 if let towns = data["serviceTowns"] as? [String] {
@@ -64,17 +68,20 @@ final class BusinessProfileEditViewModel: ObservableObject {
                 self.longitude = data["longitude"] as? Double
 
                 self.isActive = data["isActive"] as? Bool ?? true
+
+                // ✅ FIX: LOAD PHOTOS
+                self.photoURLs = data["photoURLs"] as? [String] ?? []
             }
     }
 
     // MARK: - Validation
 
     var isValid: Bool {
-        !businessName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        && !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        && selectedCategory != nil
-        && selectedTown != nil
-        && (!isMobile || !selectedServiceTowns.isEmpty)
+        !businessName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        selectedCategory != nil &&
+        selectedTown != nil &&
+        (!isMobile || !selectedServiceTowns.isEmpty)
     }
 
     // MARK: - Save
@@ -108,7 +115,11 @@ final class BusinessProfileEditViewModel: ObservableObject {
             "serviceTowns": serviceTownValues,
             "latitude": latitude ?? NSNull(),
             "longitude": longitude ?? NSNull(),
-            "isActive": isActive
+            "isActive": isActive,
+            "bio": bio.trimmingCharacters(in: .whitespacesAndNewlines),
+
+            // ✅ FIX: SAVE PHOTOS
+            "photoURLs": photoURLs
         ]
 
         db.collection("businesses")
@@ -124,5 +135,17 @@ final class BusinessProfileEditViewModel: ObservableObject {
                     onComplete()
                 }
             }
+    }
+
+    // MARK: - Photo Helpers (basic for now)
+
+    func addPhotoURL(_ url: String) {
+        guard photoURLs.count < 5 else { return } // limit
+        photoURLs.append(url)
+    }
+
+    func removePhoto(at index: Int) {
+        guard photoURLs.indices.contains(index) else { return }
+        photoURLs.remove(at: index)
     }
 }

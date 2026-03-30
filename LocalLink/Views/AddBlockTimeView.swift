@@ -188,7 +188,7 @@ struct AddBlockTimeView: View {
             businessId: businessId,
             staffId: staffId,
             startDate: startDate,
-            numberOfDays: 1
+            numberOfDays: 30
         )
 
         await MainActor.run {

@@ -1,5 +1,7 @@
 import UIKit
 import Firebase
+import FirebaseMessaging
+import UserNotifications
 import GoogleSignIn
 import Stripe
 
@@ -7,18 +9,55 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     func application(
         _ application: UIApplication,
-        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+        didFinishLaunchingWithOptions launchOptions:
+        [UIApplication.LaunchOptionsKey : Any]? = nil
     ) -> Bool {
+        if let notification = launchOptions?[.remoteNotification] as? [AnyHashable: Any],
+           let bookingId = notification["bookingId"] as? String {
 
-        // Firebase
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                NotificationRouter.shared.bookingIdToOpen = bookingId
+            }
+        }
         FirebaseApp.configure()
 
-        // Stripe
-        StripeAPI.defaultPublishableKey = "pk_test_51SglXq2fXPPaIIVVjyW1MvaYm3owf9CBHeVGJILTn41zd3d3OX59fzYPZ5ZeIqtkXBoyyJGB9z0JQNg0D5vo0CqK00YFUZVaj3"
+        // ✅ Ask permission ONCE (correct place)
+        UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
+
+        UNUserNotificationCenter.current().requestAuthorization(
+            options: [.alert, .badge, .sound]
+        ) { granted, error in
+            print("Notifications granted: \(granted)")
+        }
+
+        application.registerForRemoteNotifications()
+
+        // ✅ FCM setup
+        Messaging.messaging().delegate = MessagingDelegateHandler.shared
+
+        // ✅ Stripe
+        StripeAPI.defaultPublishableKey = "pk_live_..."
 
         return true
     }
 
+    // ✅ REQUIRED: APNs → Firebase
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        Messaging.messaging().apnsToken = deviceToken
+    }
+
+    // ✅ Optional (good for debugging)
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        print("❌ Failed to register for notifications:", error)
+    }
+
+    // ✅ Google Sign-In
     func application(
         _ app: UIApplication,
         open url: URL,
@@ -27,5 +66,3 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         return GIDSignIn.sharedInstance.handle(url)
     }
 }
-
-

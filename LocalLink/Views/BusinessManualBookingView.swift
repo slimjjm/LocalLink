@@ -8,8 +8,10 @@ struct BusinessManualBookingView: View {
     let staff: Staff
 
     @State private var selectedDate = Date().localMidnight()
+
     @State private var isGenerating = false
     @State private var isLoadingSlots = false
+
     @State private var message: String?
 
     @State private var availableSlots: [AvailableSlot] = []
@@ -24,6 +26,7 @@ struct BusinessManualBookingView: View {
         List {
 
             Section("Select Date") {
+
                 DatePicker(
                     "Booking date",
                     selection: $selectedDate,
@@ -32,15 +35,22 @@ struct BusinessManualBookingView: View {
             }
 
             Section {
+
                 Button {
+
                     generateSlots()
+
                 } label: {
+
                     if isGenerating {
+
                         HStack {
                             ProgressView()
                             Text("Generating…")
                         }
+
                     } else {
+
                         Text("Generate slots for this day")
                     }
                 }
@@ -48,7 +58,9 @@ struct BusinessManualBookingView: View {
             }
 
             if let message {
+
                 Section {
+
                     Text(message)
                         .foregroundColor(.secondary)
                 }
@@ -57,28 +69,40 @@ struct BusinessManualBookingView: View {
             Section("Available Slots") {
 
                 if isLoadingSlots {
+
                     HStack {
+
                         ProgressView()
+
                         Text("Loading slots…")
                             .foregroundColor(.secondary)
                     }
+
                 } else if availableSlots.isEmpty {
+
                     Text("No available slots for this day.")
                         .foregroundColor(.secondary)
+
                 } else {
+
                     ForEach(availableSlots) { slot in
+
                         Button {
+
                             selectedSlot = slot
+
                         } label: {
+
                             HStack {
+
                                 VStack(alignment: .leading, spacing: 4) {
+
                                     Text(
                                         slot.startTime.formatted(
                                             date: .omitted,
                                             time: .shortened
                                         )
                                     )
-                                    .foregroundColor(.primary)
 
                                     Text(
                                         "\(slot.startTime.formatted(date: .omitted, time: .shortened)) → \(slot.endTime.formatted(date: .omitted, time: .shortened))"
@@ -99,28 +123,38 @@ struct BusinessManualBookingView: View {
         }
         .navigationTitle("Manual Booking")
         .navigationBarTitleDisplayMode(.inline)
+
         .onAppear {
+
             loadSlotsForSelectedDay()
         }
+
         .onChange(of: selectedDate) { _ in
+
             message = nil
             loadSlotsForSelectedDay()
         }
+
         .sheet(item: $selectedSlot, onDismiss: {
+
             loadSlotsForSelectedDay()
+
         }) { slot in
+
             BusinessQuickBookingView(
                 businessId: businessId,
                 staffId: staff.id ?? "",
-                startTime: slot.startTime,
-                endTime: slot.endTime
+                startTime: slot.startTime
             )
         }
     }
 
+    // MARK: - Generate slots
+
     private func generateSlots() {
 
         guard let staffId = staff.id else {
+
             message = "Missing staff id."
             return
         }
@@ -129,7 +163,9 @@ struct BusinessManualBookingView: View {
         message = nil
 
         Task {
+
             do {
+
                 try await generator.regenerateDays(
                     businessId: businessId,
                     staffId: staffId,
@@ -138,13 +174,17 @@ struct BusinessManualBookingView: View {
                 )
 
                 await MainActor.run {
+
                     isGenerating = false
                     message = "Slots generated. Select a slot below."
+
                     loadSlotsForSelectedDay()
                 }
 
             } catch {
+
                 await MainActor.run {
+
                     isGenerating = false
                     message = "Failed to generate slots."
                 }
@@ -152,14 +192,18 @@ struct BusinessManualBookingView: View {
         }
     }
 
+    // MARK: - Load slots
+
     private func loadSlotsForSelectedDay() {
 
         guard let staffId = staff.id else {
+
             availableSlots = []
             return
         }
 
         isLoadingSlots = true
+        availableSlots = []
 
         let start = calendar.startOfDay(for: selectedDate)
         let end = calendar.date(byAdding: .day, value: 1, to: start)!
@@ -172,21 +216,27 @@ struct BusinessManualBookingView: View {
             .whereField("startTime", isGreaterThanOrEqualTo: Timestamp(date: start))
             .whereField("startTime", isLessThan: Timestamp(date: end))
             .whereField("isBooked", isEqualTo: false)
+            .order(by: "startTime")
             .getDocuments { snap, error in
 
                 DispatchQueue.main.async {
+
                     isLoadingSlots = false
 
-                    if error != nil {
+                    if let error = error {
                         availableSlots = []
+                        message = error.localizedDescription
+                        print("loadSlotsForSelectedDay error:", error.localizedDescription)
                         return
                     }
 
                     let slots = snap?.documents.compactMap {
+
                         try? $0.data(as: AvailableSlot.self)
+
                     } ?? []
 
-                    availableSlots = slots.sorted { $0.startTime < $1.startTime }
+                    availableSlots = slots
                 }
             }
     }

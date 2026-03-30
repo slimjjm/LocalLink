@@ -2,30 +2,24 @@ import SwiftUI
 
 extension BusinessCategory {
 
-    var icon: String {
-
+    var icon: Image {
         switch self {
-
-        case .barber:
-            return "scissors"
-
-        case .nails:
-            return "sparkles"
-
-        case .electrician:
-            return "bolt.fill"
-
-        case .plumber:
-            return "wrench.and.screwdriver"
-
         case .cleaner:
-            return "bubbles.and.sparkles"
-
+            return Image(systemName: "bubbles.and.sparkles")
+        case .dogWalker:
+            return Image(systemName: "figure.walk")
+        case .personalTrainer:
+            return Image(systemName: "figure.strengthtraining.traditional")
+        case .dogGroomer:
+            return Image(systemName: "pawprint.fill")
+        case .hairSalon:
+            return Image(systemName: "person.crop.circle")
+        case .barber:
+            return Image(systemName: "scissors")
+        case .nails:
+            return Image(systemName: "sparkles")
         case .gardener:
-            return "leaf.fill"
-
-        default:
-            return "briefcase.fill"
+            return Image(systemName: "leaf.fill")
         }
     }
 }

@@ -5,6 +5,9 @@ enum AppRoute: Hashable {
     // Auth
     case login
     case register
+    case authEntry
+    
+    case roleSelection
     
     // Customer
     case customerHome

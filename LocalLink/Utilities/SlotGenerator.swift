@@ -106,7 +106,7 @@ struct SlotGenerator {
                         .collection("bookings")
                         .document(bookingDoc.documentID)
                         .updateData([
-                            "status": BookingStatus.cancelledByBusiness.rawValue,
+                            "status": BookingStatus.cancelled_by_business.rawValue,
                             "cancelledAt": FieldValue.serverTimestamp()
                         ])
                 }

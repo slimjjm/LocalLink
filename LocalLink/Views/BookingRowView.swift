@@ -23,6 +23,16 @@ struct BookingRowView: View {
                 .font(.footnote)
                 .foregroundColor(.secondary)
 
+            Text("\(booking.startDate.formatted(date: .omitted, time: .shortened)) - \(booking.endDate.formatted(date: .omitted, time: .shortened))")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+
+            if !booking.safeCustomerAddress.isEmpty {
+                Text(booking.safeCustomerAddress)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
             HStack {
 
                 Text(booking.safeStaffName)
@@ -39,14 +49,16 @@ struct BookingRowView: View {
         .padding(.vertical, 6)
     }
 
-    private var formattedPrice: String {
+    // MARK: - Price
 
+    private var formattedPrice: String {
         let pounds = Double(booking.price) / 100.0
         return String(format: "£%.2f", pounds)
     }
 
-    private var statusBadge: some View {
+    // MARK: - Status Badge
 
+    private var statusBadge: some View {
         Text(statusText)
             .font(.caption.bold())
             .padding(.horizontal, 8)
@@ -57,7 +69,6 @@ struct BookingRowView: View {
     }
 
     private var statusText: String {
-
         switch booking.status {
 
         case .confirmed:
@@ -69,19 +80,15 @@ struct BookingRowView: View {
         case .refunded:
             return "Refunded"
 
-        case .cancelledByBusiness, .cancelledByCustomer:
+        case .cancelled_by_business, .cancelled_by_customer:
             return "Cancelled"
 
-        case .pendingPayment:
+        case .pending_payment:
             return "Pending"
-
-        case .unknown:
-            return "Processing"
         }
     }
 
     private var statusColor: Color {
-
         switch booking.status {
 
         case .confirmed:
@@ -93,19 +100,17 @@ struct BookingRowView: View {
         case .refunded:
             return .gray
 
-        case .cancelledByBusiness, .cancelledByCustomer:
+        case .cancelled_by_business, .cancelled_by_customer:
             return AppColors.error
 
-        case .pendingPayment:
+        case .pending_payment:
             return AppColors.primary
-
-        case .unknown:
-            return .gray.opacity(0.6)
         }
     }
 
-    private static let formatter: DateFormatter = {
+    // MARK: - Date
 
+    private static let formatter: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .medium
         f.timeStyle = .short

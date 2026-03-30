@@ -3,10 +3,7 @@ import SwiftUI
 struct BusinessRowView: View {
 
     let business: Business
-
-    @State private var nextSlot: Date?
-
-    private let slotService = NextAvailableSlotService()
+    let nextSlot: Date?
 
     var body: some View {
 
@@ -22,50 +19,26 @@ struct BusinessRowView: View {
 
             if let nextSlot {
 
-                if Calendar.current.isDateInToday(nextSlot) {
-
-                    Text("Available today")
-                        .font(.caption.bold())
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.green.opacity(0.15))
-                        .foregroundColor(.green)
-                        .clipShape(Capsule())
-                }
+                Text(
+                    nextSlot.formatted(
+                        date: .abbreviated,
+                        time: .shortened
+                    )
+                )
+                .font(.caption)
+                .foregroundColor(.secondary)
 
             } else {
 
-                HStack {
-
-                    ProgressView()
-
-                    Text("Checking availability…")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                Text("No availability")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
         .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color(.secondarySystemBackground))
         )
-        .onAppear {
-            loadNextSlot()
-        }
-    }
-
-    private func loadNextSlot() {
-
-        guard let id = business.id else { return }
-
-        slotService.fetchNextSlot(businessId: id) { slot in
-
-            DispatchQueue.main.async {
-
-                self.nextSlot = slot
-            }
-        }
     }
 }

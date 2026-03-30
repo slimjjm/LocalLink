@@ -9,7 +9,7 @@ final class BookingService {
     private let functions = Functions.functions(region: "us-central1")
 
     // =================================================
-    // CONFIRM BOOKING (transaction-safe)
+    // CONFIRM BOOKING (PRODUCTION SAFE)
     // =================================================
 
     func confirmBooking(
@@ -21,7 +21,6 @@ final class BookingService {
         staffId: String,
         date: Date,
         startTime: Date,
-        endTime: Date,
         paymentIntentId: String?,
         source: String = "app",
         completion: @escaping (Result<Void, Error>) -> Void
@@ -36,6 +35,25 @@ final class BookingService {
             return
         }
 
+        // ✅ SOURCE OF TRUTH
+        let durationMinutes = service.durationMinutes
+
+        guard durationMinutes > 0 else {
+            completion(.failure(NSError(
+                domain: "BookingService",
+                code: 400,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid service duration."]
+            )))
+            return
+        }
+
+        // ✅ ALWAYS CALCULATE END TIME (DO NOT TRUST UI)
+        let calculatedEnd = Calendar.current.date(
+            byAdding: .minute,
+            value: durationMinutes,
+            to: startTime
+        ) ?? startTime
+
         let bookingDay = date.localMidnight()
         let pricePence = Int((service.price * 100).rounded())
 
@@ -49,15 +67,32 @@ final class BookingService {
         let bookingRef = db.collection("bookings").document()
         let bookingId = bookingRef.documentID
 
-        // Break booking into 30-minute slot segments
-        let interval: TimeInterval = 60 * 30
+        // =================================================
+        // BUILD SLOT SEGMENTS (30 MIN GRID)
+        // =================================================
+
+        let slotInterval: TimeInterval = 60 * 30
         var slotTimes: [Date] = []
         var cursor = startTime
 
-        while cursor < endTime {
+        while cursor < calculatedEnd {
             slotTimes.append(cursor)
-            cursor = cursor.addingTimeInterval(interval)
+            cursor = cursor.addingTimeInterval(slotInterval)
         }
+
+        // Safety check
+        if slotTimes.isEmpty {
+            completion(.failure(NSError(
+                domain: "BookingService",
+                code: 400,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid slot calculation."]
+            )))
+            return
+        }
+
+        // =================================================
+        // TRANSACTION
+        // =================================================
 
         db.runTransaction({ txn, errorPointer -> Any? in
 
@@ -91,20 +126,23 @@ final class BookingService {
                     errorPointer?.pointee = NSError(
                         domain: "BookingService",
                         code: 409,
-                        userInfo: [NSLocalizedDescriptionKey: "Slot already booked."]
+                        userInfo: [NSLocalizedDescriptionKey: "Time already booked."]
                     )
                     return nil
                 }
             }
 
-            // Create booking
+            // =================================================
+            // CREATE BOOKING
+            // =================================================
+
             txn.setData([
                 "businessId": businessId,
                 "customerId": customerId,
 
                 "serviceId": serviceId,
                 "serviceName": service.name,
-                "serviceDurationMinutes": service.durationMinutes,
+                "serviceDurationMinutes": durationMinutes,
 
                 "price": pricePence,
 
@@ -120,7 +158,7 @@ final class BookingService {
                 "date": Timestamp(date: bookingDay),
 
                 "startDate": Timestamp(date: startTime),
-                "endDate": Timestamp(date: endTime),
+                "endDate": Timestamp(date: calculatedEnd),
 
                 "status": BookingStatus.confirmed.rawValue,
                 "source": source,
@@ -128,7 +166,10 @@ final class BookingService {
                 "createdAt": FieldValue.serverTimestamp()
             ], forDocument: bookingRef)
 
-            // Lock slots
+            // =================================================
+            // LOCK ALL REQUIRED SLOTS
+            // =================================================
+
             for ref in slotRefs {
                 txn.setData([
                     "isBooked": true,
@@ -188,7 +229,7 @@ final class BookingService {
         db.collection("bookings")
             .document(bookingId)
             .updateData([
-                "status": BookingStatus.cancelledByBusiness.rawValue,
+                "status": BookingStatus.cancelled_by_business.rawValue,
                 "cancelledAt": FieldValue.serverTimestamp()
             ]) { error in
 

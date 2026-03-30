@@ -16,31 +16,42 @@ struct BusinessBookingRowView: View {
 
             HStack(alignment: .top, spacing: 14) {
 
-                VStack {
-                    Text(timeString)
+                // ⏰ TIME BLOCK
+                VStack(alignment: .leading, spacing: 4) {
+                    
+                    Text(startTimeString)
                         .font(.title3.bold())
-
-                    Spacer()
+                    
+                    Text(endTimeString)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
-                .frame(width: 60)
+                .frame(width: 70, alignment: .leading)
 
+                // 📋 DETAILS
                 VStack(alignment: .leading, spacing: 10) {
 
+                    // SERVICE
                     Text(booking.safeServiceName)
                         .font(.headline)
                         .foregroundColor(AppColors.charcoal)
 
+                    // 📅 FULL DATE (NEW)
+                    Text(fullDateString)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    // 👤 CUSTOMER
                     HStack(spacing: 6) {
-
                         Image(systemName: "person.fill")
-
                         Text(booking.safeCustomerName)
                     }
                     .font(.subheadline)
 
+                    // 📍 ADDRESS
                     if !booking.safeCustomerAddress.isEmpty {
 
-                        HStack(spacing: 6) {
+                        HStack(alignment: .top, spacing: 6) {
 
                             Image(systemName: "mappin.and.ellipse")
 
@@ -50,10 +61,9 @@ struct BusinessBookingRowView: View {
                         .font(.subheadline)
                     }
 
+                    // 👷 STAFF
                     HStack(spacing: 6) {
-
                         Image(systemName: "person.2.fill")
-
                         Text("Staff: \(booking.safeStaffName)")
                     }
                     .font(.caption)
@@ -61,12 +71,10 @@ struct BusinessBookingRowView: View {
 
                     Divider()
 
+                    // ❌ CANCEL BUTTON
                     Button(role: .destructive) {
-
                         cancelBooking()
-
                     } label: {
-
                         if isCancelling {
                             ProgressView()
                         } else {
@@ -84,6 +92,7 @@ struct BusinessBookingRowView: View {
             )
             .padding(.vertical, 6)
 
+            // 🔔 UNREAD BADGE
             if booking.unreadBusinessCount > 0 {
 
                 Text("\(booking.unreadBusinessCount)")
@@ -97,9 +106,21 @@ struct BusinessBookingRowView: View {
         }
     }
 
-    private var timeString: String {
+    // MARK: - Time Formatting
+
+    private var startTimeString: String {
         booking.startDate.formatted(date: .omitted, time: .shortened)
     }
+
+    private var endTimeString: String {
+        booking.endDate.formatted(date: .omitted, time: .shortened)
+    }
+
+    private var fullDateString: String {
+        booking.startDate.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    // MARK: - Actions
 
     private func cancelBooking() {
 
