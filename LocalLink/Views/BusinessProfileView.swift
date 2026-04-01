@@ -1,6 +1,5 @@
 import SwiftUI
 import FirebaseAuth
-import FirebaseFirestore
 
 struct BusinessProfileView: View {
     
@@ -13,42 +12,94 @@ struct BusinessProfileView: View {
     }
 
     var body: some View {
+
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                
+            VStack(spacing: 18) {
+
                 headerSection
-                
+
                 if !isOwner {
                     contactButton
                 }
-                
-                businessInfoSection
+
+                infoRow
                 ratingSection
-                
+
                 if let bio = business.bio,
                    !bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     bioSection(bio)
                 }
-        
+
                 availabilitySection
                 servicesSection
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 24)
+            .padding(16)
         }
-        .background(AppColors.background.ignoresSafeArea())
+        .background(AppColors.background)
         .navigationTitle("Business")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
 
-// MARK: - Contact
+// MARK: - HEADER
 
 private extension BusinessProfileView {
-    
+
+    var headerSection: some View {
+
+        ZStack(alignment: .bottomLeading) {
+
+            if let photos = business.photoURLs, !photos.isEmpty {
+
+                TabView {
+                    ForEach(photos, id: \.self) { url in
+                        AsyncImage(url: URL(string: url)) { image in
+                            image.resizable().scaledToFill()
+                        } placeholder: {
+                            ProgressView()
+                        }
+                    }
+                }
+                .frame(height: 240)
+                .tabViewStyle(.page)
+
+            } else {
+
+                LinearGradient(
+                    colors: [AppColors.primary, AppColors.primary.opacity(0.7)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.6)],
+                startPoint: .center,
+                endPoint: .bottom
+            )
+
+            VStack(alignment: .leading, spacing: 6) {
+
+                Text(business.businessName)
+                    .font(.title2.bold())
+                    .foregroundColor(.white)
+
+                Text(business.town)
+                    .foregroundColor(.white.opacity(0.9))
+            }
+            .padding()
+        }
+        .frame(height: 240)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+    }
+}
+
+// MARK: - CONTACT
+
+private extension BusinessProfileView {
+
     var contactButton: some View {
-        
+
         NavigationLink {
             EnquiryChatView(business: business)
         } label: {
@@ -58,217 +109,114 @@ private extension BusinessProfileView {
                 Spacer()
             }
             .padding()
-            .background(AppColors.primary.opacity(0.15))
+            .background(AppColors.primary.opacity(0.12))
             .foregroundColor(AppColors.primary)
             .cornerRadius(14)
         }
     }
 }
 
-// MARK: - Header
+// MARK: - INFO
 
 private extension BusinessProfileView {
-    
-    var headerSection: some View {
-        
-        ZStack(alignment: .bottomLeading) {
-            
-            if let photos = business.photoURLs, !photos.isEmpty {
-                
-                TabView {
-                    ForEach(photos, id: \.self) { urlString in
-                        AsyncImage(url: URL(string: urlString)) { image in
-                            image
-                                .resizable()
-                                .scaledToFill()
-                                .frame(height: 240)
-                                .clipped()
-                        } placeholder: {
-                            ZStack {
-                                Color(.secondarySystemBackground)
-                                ProgressView().tint(AppColors.primary)
-                            }
-                        }
-                    }
-                }
-                .frame(height: 240)
-                .tabViewStyle(.page)
-                
-            } else {
-                
-                LinearGradient(
-                    colors: [AppColors.primary, AppColors.primary.opacity(0.7)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .frame(height: 240)
-            }
-            
-            LinearGradient(
-                colors: [Color.clear, Color.black.opacity(0.6)],
-                startPoint: .center,
-                endPoint: .bottom
-            )
-            
-            VStack(alignment: .leading, spacing: 6) {
-                
-                Text(business.businessName)
-                    .font(.title2.bold())
-                    .foregroundColor(.white)
-                
-                Text(business.town)
-                    .foregroundColor(.white.opacity(0.9))
-            }
-            .padding(16)
-        }
-        .frame(height: 240)
-        .clipShape(RoundedRectangle(cornerRadius: 22))
-    }
-}
 
-// MARK: - Info
-
-private extension BusinessProfileView {
-    
-    var businessInfoSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+    var infoRow: some View {
+        HStack {
             Text("\(business.category) • \(business.town)")
                 .foregroundColor(.secondary)
+            Spacer()
         }
-        .padding(18)
-        .background(RoundedRectangle(cornerRadius: 18)
-            .fill(Color(.secondarySystemGroupedBackground)))
+        .modifier(CardStyle())
     }
 }
 
-// MARK: - Rating
+// MARK: - RATING
 
 private extension BusinessProfileView {
-    
+
     var ratingSection: some View {
-        
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Rating")
-                .font(.headline)
-            
-            Text("New to LocalLink")
-                .foregroundColor(.secondary)
+        HStack(spacing: 8) {
+
+            Image(systemName: "star.fill")
+                .foregroundColor(.yellow)
+
+            Text("New")
+                .font(.subheadline.weight(.semibold))
+
+            Spacer()
         }
-        .padding(18)
-        .background(RoundedRectangle(cornerRadius: 18)
-            .fill(Color(.secondarySystemGroupedBackground)))
+        .modifier(CardStyle())
     }
 }
 
-// MARK: - Bio
+// MARK: - BIO
 
 private extension BusinessProfileView {
-    
+
     func bioSection(_ bio: String) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("About")
-                .font(.headline)
-            Text(bio)
-                .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            Text("About").font(.headline)
+            Text(bio).foregroundColor(.secondary)
         }
-        .padding(18)
-        .background(RoundedRectangle(cornerRadius: 18)
-            .fill(Color(.secondarySystemGroupedBackground)))
+        .modifier(CardStyle())
     }
 }
 
-// MARK: - Availability
+// MARK: - AVAILABILITY
 
 private extension BusinessProfileView {
-    
+
     var availabilitySection: some View {
-        
-        VStack(alignment: .leading, spacing: 12) {
-            
-            Text("Availability")
+        VStack(alignment: .leading, spacing: 8) {
+
+            Text("Next availability")
                 .font(.headline)
-            
+
             if let nextSlot {
-                
-                VStack(alignment: .leading, spacing: 6) {
-                    
-                    Text("Next available")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    Text(nextSlot.formatted(date: .abbreviated, time: .shortened))
-                        .font(.title3.bold())
-                    
-                    if Calendar.current.isDateInToday(nextSlot) {
-                        Text("Available today")
-                            .font(.caption.bold())
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(AppColors.success.opacity(0.15))
-                            .foregroundColor(AppColors.success)
-                            .clipShape(Capsule())
-                    }
-                }
-                
+                Text(nextSlot.formatted(date: .abbreviated, time: .shortened))
+                    .font(.title3.bold())
             } else {
                 Text("No availability")
                     .foregroundColor(.secondary)
             }
         }
-        .padding(18)
-        .background(RoundedRectangle(cornerRadius: 18)
-            .fill(Color(.secondarySystemGroupedBackground)))
+        .modifier(CardStyle())
     }
 }
 
-// MARK: - Services
+// MARK: - SERVICES
 
 private extension BusinessProfileView {
-    
+
     var servicesSection: some View {
-        
-        VStack(alignment: .leading, spacing: 14) {
-            
+
+        VStack(alignment: .leading, spacing: 12) {
+
             Text("Services")
                 .font(.headline)
-            
-            if services.isEmpty {
-                
-                Text("No services available")
-                    .foregroundColor(.secondary)
-                
-            } else {
-                
-                ForEach(services) { service in
-                    serviceCard(service)
-                }
+
+            ForEach(services) { service in
+                serviceCard(service)
             }
         }
     }
-    
+
     func serviceCard(_ service: BusinessService) -> some View {
-        
+
         VStack(alignment: .leading, spacing: 10) {
-            
+
             Text(service.name)
                 .font(.headline)
-            
+
             Text("£\(service.price, specifier: "%.2f") • \(service.durationMinutes) mins")
                 .foregroundColor(.secondary)
-            
-            if isOwner {
-                
-                Text("You can't book your own business")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-            } else if let businessId = business.id,
-                      let serviceId = service.id {
-                
+
+            if !isOwner, let businessId = business.id {
+
                 NavigationLink {
                     BookingDateSelectorView(
                         businessId: businessId,
-                        service: service,              // ✅ FIXED
+                        service: service,
                         customerAddress: nil
                     )
                 } label: {
@@ -279,8 +227,6 @@ private extension BusinessProfileView {
                 .tint(AppColors.primary)
             }
         }
-        .padding(18)
-        .background(RoundedRectangle(cornerRadius: 18)
-            .fill(Color(.secondarySystemGroupedBackground)))
+        .modifier(CardStyle())
     }
 }

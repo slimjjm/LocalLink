@@ -4,6 +4,7 @@ import SwiftUI
 final class NavigationState: ObservableObject {
 
     @Published var path: [AppRoute] = []
+    @Published var pendingRoute: AppRoute?   // ✅ ADD THIS
 
     func reset() {
         path.removeAll()

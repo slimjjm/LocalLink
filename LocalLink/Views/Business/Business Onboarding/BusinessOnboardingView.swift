@@ -35,7 +35,18 @@ struct BusinessOnboardingView: View {
                 // ✅ Conversion-focused headline
                 Text("Start getting bookings")
                     .font(.largeTitle.bold())
-
+                Button {
+                    authManager.clearRole()
+                    nav.reset()
+                    nav.path.append(.roleSelection)
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.left")
+                        Text("Back to account type")
+                    }
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                }
                 // MARK: Business Name
 
                 VStack(alignment: .leading, spacing: 6) {

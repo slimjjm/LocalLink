@@ -16,21 +16,20 @@ struct CustomerHomeView: View {
 
                 headerSection
 
-                // 🔥 NEW — CHAT SECTION
-                if !unreadVM.recentChats.isEmpty {
-                    chatSection
-                }
+                primaryAction
+
+                inboxCard
 
                 if unreadVM.totalUnread > 0 {
                     unreadBanner
                 }
 
-                primaryAction
                 secondaryActions
+
                 switchRoleSection
                 legalSection
             }
-            .padding()
+            .padding(16)
         }
         .background(AppColors.background)
         .navigationTitle("LocalLink")
@@ -44,162 +43,40 @@ struct CustomerHomeView: View {
                 } label: {
                     Image(systemName: "arrow.triangle.2.circlepath")
                 }
-                .accessibilityLabel("Switch account type")
             }
         }
 
         .onAppear {
-            unreadVM.startListening(
-                role: "customer",
-                businessId: nil
-            )
+            unreadVM.startListening(role: "customer", businessId: nil)
         }
-
         .onDisappear {
             unreadVM.stopListening()
         }
     }
 }
 
-// MARK: - Sections
+// MARK: - HEADER
 
 private extension CustomerHomeView {
 
     var headerSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
 
             Text("Find trusted local services")
-                .font(.title2.weight(.semibold))
+                .font(.title2.bold())
                 .foregroundColor(AppColors.charcoal)
 
-            Text("Book reliable professionals near you, quickly and with confidence.")
+            Text("Book reliable professionals near you.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
 
-    // 🔥 NEW — CHAT SECTION
+// MARK: - PRIMARY CTA
 
-    var chatSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-
-            Text("Messages")
-                .font(.headline)
-
-            VStack(spacing: 10) {
-
-                ForEach(unreadVM.recentChats.prefix(3)) { chat in
-
-                    NavigationLink {
-                        BookingChatView(
-                            bookingId: chat.bookingId,
-                            businessId: "", // not needed for chat UI now
-                            customerId: "",
-                            currentUserRole: "customer"
-                        )
-                    } label: {
-                        chatRow(chat)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    // 🔥 NEW — CHAT ROW
-
-    func chatRow(_ chat: ChatPreview) -> some View {
-        let isUnread = chat.unreadCount > 0
-
-        return HStack(spacing: 12) {
-
-            // Icon
-            Circle()
-                .fill(AppColors.primary.opacity(0.15))
-                .frame(width: 40, height: 40)
-                .overlay(
-                    Image(systemName: "message.fill")
-                        .foregroundColor(AppColors.primary)
-                )
-
-            // Text content
-            VStack(alignment: .leading, spacing: 4) {
-
-                HStack {
-                    Text(chat.title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(AppColors.charcoal)
-
-                    Spacer()
-
-                    Text(timeAgoString(from: chat.timestamp))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                Text(chat.lastMessage)
-                    .font(isUnread ? .subheadline.weight(.semibold) : .subheadline)
-                    .foregroundColor(isUnread ? AppColors.charcoal : .secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            // Unread badge
-            if isUnread {
-                Text("\(chat.unreadCount)")
-                    .font(.caption2.bold())
-                    .padding(6)
-                    .background(AppColors.primary)
-                    .foregroundColor(.white)
-                    .clipShape(Capsule())
-            }
-
-            // Chevron (navigation hint)
-            Image(systemName: "chevron.right")
-                .font(.footnote.weight(.semibold))
-                .foregroundColor(.secondary)
-        }
-        .padding()
-        .background(
-            Group {
-                if isUnread {
-                    AppColors.primary.opacity(0.05)
-                } else {
-                    Color(.secondarySystemBackground)
-                }
-            }
-        )
-        .cornerRadius(14)
-    }
-    // MARK: Existing sections (unchanged)
-
-    var unreadBanner: some View {
-        NavigationLink {
-            CustomerBookingsView()
-        } label: {
-            HStack(spacing: 12) {
-
-                Image(systemName: "message.fill")
-
-                Text("You have \(unreadVM.totalUnread) unread message\(unreadVM.totalUnread > 1 ? "s" : "")")
-                    .lineLimit(2)
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-            }
-            .font(.footnote.weight(.semibold))
-            .padding()
-            .frame(maxWidth: .infinity)
-            .background(AppColors.primary.opacity(0.12))
-            .foregroundColor(AppColors.primary)
-            .cornerRadius(14)
-        }
-        .buttonStyle(.plain)
-    }
+private extension CustomerHomeView {
 
     var primaryAction: some View {
         NavigationLink {
@@ -208,21 +85,97 @@ private extension CustomerHomeView {
 
             VStack(alignment: .leading, spacing: 10) {
 
-                Text("Find a service")
-                    .font(.headline)
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                    Text("Find a service")
+                }
+                .font(.headline)
 
-                Text("Browse cleaners, dog groomers and more in your area")
+                Text("Cleaners, dog groomers and more near you")
                     .font(.subheadline)
-                    .foregroundColor(.white.opacity(0.9))
+                    .opacity(0.9)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
-            .background(AppColors.primary)
+            .padding(18)
+            .background(
+                LinearGradient(
+                    colors: [AppColors.primary, AppColors.primary.opacity(0.8)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
             .foregroundColor(.white)
-            .cornerRadius(16)
-            .shadow(color: .black.opacity(0.08), radius: 8, y: 4)
+            .cornerRadius(18)
+            .shadow(color: .black.opacity(0.12), radius: 10, y: 6)
         }
     }
+}
+
+// MARK: - INBOX
+
+private extension CustomerHomeView {
+
+    var inboxCard: some View {
+        NavigationLink {
+            InboxView()
+        } label: {
+
+            HStack(spacing: 14) {
+
+                icon("bubble.left.and.bubble.right.fill")
+
+                VStack(alignment: .leading, spacing: 4) {
+
+                    Text("Inbox")
+                        .font(.subheadline.weight(.semibold))
+
+                    Text(unreadVM.totalUnread > 0
+                         ? "\(unreadVM.totalUnread) unread message\(unreadVM.totalUnread > 1 ? "s" : "")"
+                         : "Messages and updates")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                if unreadVM.totalUnread > 0 {
+                    badge(unreadVM.totalUnread)
+                }
+
+                chevron
+            }
+            .modifier(CardStyle(highlight: unreadVM.totalUnread > 0))
+        }
+    }
+}
+
+// MARK: - UNREAD BANNER
+
+private extension CustomerHomeView {
+
+    var unreadBanner: some View {
+        NavigationLink {
+            CustomerBookingsView()
+        } label: {
+
+            HStack {
+                Image(systemName: "message.fill")
+                Text("\(unreadVM.totalUnread) unread messages")
+                Spacer()
+                chevron
+            }
+            .font(.footnote.weight(.semibold))
+            .padding()
+            .background(AppColors.primary.opacity(0.12))
+            .foregroundColor(AppColors.primary)
+            .cornerRadius(14)
+        }
+    }
+}
+
+// MARK: - SECONDARY
+
+private extension CustomerHomeView {
 
     var secondaryActions: some View {
         VStack(spacing: 12) {
@@ -232,7 +185,7 @@ private extension CustomerHomeView {
             } label: {
                 secondaryCard(
                     title: "Your bookings",
-                    subtitle: "View upcoming and past appointments",
+                    subtitle: "Upcoming & past appointments",
                     icon: "calendar"
                 )
             }
@@ -242,15 +195,20 @@ private extension CustomerHomeView {
             } label: {
                 secondaryCard(
                     title: "Settings",
-                    subtitle: "Manage your account and preferences",
+                    subtitle: "Account & preferences",
                     icon: "gearshape"
                 )
             }
         }
     }
+}
+
+// MARK: - SWITCH ROLE
+
+private extension CustomerHomeView {
 
     var switchRoleSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
 
             Divider().padding(.vertical, 8)
 
@@ -259,82 +217,88 @@ private extension CustomerHomeView {
                 .foregroundColor(.secondary)
 
             Button {
-                NotificationCenter.default.post(name: .didSelectRole, object: nil)
+                authManager.setRole(.business)
             } label: {
                 HStack {
-                    Image(systemName: "arrow.triangle.2.circlepath")
+                    Image(systemName: "briefcase.fill")
                     Text("Switch to business account")
                 }
-                .font(.subheadline.weight(.semibold))
                 .frame(maxWidth: .infinity)
                 .padding()
                 .background(Color(.secondarySystemBackground))
                 .cornerRadius(12)
             }
-            }
         }
     }
+}
+
+// MARK: - LEGAL
+
+private extension CustomerHomeView {
 
     var legalSection: some View {
         VStack(spacing: 6) {
 
             Divider().padding(.vertical, 8)
 
-            HStack(spacing: 12) {
-                Link("Privacy Policy", destination: URL(string: "https://locallinkapp.co.uk/privacy")!)
+            HStack {
+                Link("Privacy", destination: URL(string: "https://locallinkapp.co.uk/privacy")!)
                 Link("Terms", destination: URL(string: "https://locallinkapp.co.uk/terms")!)
             }
             .font(.footnote)
             .foregroundColor(.secondary)
 
-            Link("Contact us", destination: URL(string: "https://locallinkapp.co.uk/contact")!)
+            Link("Contact", destination: URL(string: "https://locallinkapp.co.uk/contact")!)
                 .font(.footnote)
                 .foregroundColor(.secondary)
         }
-        .multilineTextAlignment(.center)
     }
+}
+
+// MARK: - COMPONENTS
+
+private extension CustomerHomeView {
 
     func secondaryCard(title: String, subtitle: String, icon: String) -> some View {
         HStack(spacing: 14) {
 
-            Image(systemName: icon)
-                .font(.headline)
+            self.icon(icon)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(subtitle).font(.caption).foregroundColor(.secondary)
             }
 
             Spacer()
-
-            Image(systemName: "chevron.right")
-                .font(.footnote.weight(.semibold))
-                .foregroundColor(.secondary)
+            chevron
         }
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(14)
+        .modifier(CardStyle())
     }
 
-private func timeAgoString(from date: Date) -> String {
-    let seconds = Int(Date().timeIntervalSince(date))
-    
-    if seconds < 60 {
-        return "Now"
-    } else if seconds < 3600 {
-        return "\(seconds / 60)m"
-    } else if seconds < 86400 {
-        return "\(seconds / 3600)h"
-    } else if seconds < 172800 {
-        return "Yesterday"
-    } else {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        return formatter.string(from: date)
+    func icon(_ name: String) -> some View {
+        ZStack {
+            Circle()
+                .fill(AppColors.primary.opacity(0.12))
+                .frame(width: 40, height: 40)
+
+            Image(systemName: name)
+                .foregroundColor(AppColors.primary)
+        }
+    }
+
+    func badge(_ count: Int) -> some View {
+        Text("\(count)")
+            .font(.caption2.bold())
+            .padding(8)
+            .background(AppColors.primary)
+            .foregroundColor(.white)
+            .clipShape(Circle())
+    }
+
+    var chevron: some View {
+        Image(systemName: "chevron.right")
+            .font(.footnote.weight(.semibold))
+            .foregroundColor(.secondary)
     }
 }
 

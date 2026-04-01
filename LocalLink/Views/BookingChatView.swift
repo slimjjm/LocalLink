@@ -8,17 +8,26 @@ struct BookingChatView: View {
     let bookingId: String
     let businessId: String
     let customerId: String
-    let currentUserRole: String   // "customer" or "business"
+    let currentUserRole: String
+
+    @EnvironmentObject private var nav: NavigationState
+    @EnvironmentObject private var authManager: AuthManager
 
     @State private var messages: [BookingMessage] = []
     @State private var newMessage: String = ""
     @State private var listener: ListenerRegistration?
     @State private var bookingListener: ListenerRegistration?
-
+    @State private var isNearBottom: Bool = true
     @State private var booking: Booking?
+    @State private var isActiveChatSet = false
+    @State private var showLoginAlert = false
 
     private let db = Firestore.firestore()
     private let repo = BookingChatRepository()
+
+    private var isGuest: Bool {
+        Auth.auth().currentUser?.isAnonymous == true
+    }
 
     var body: some View {
 
@@ -27,54 +36,120 @@ struct BookingChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
 
-                    LazyVStack(alignment: .leading, spacing: 10) {
+                    LazyVStack(spacing: 12) {
 
                         ForEach(messages) { message in
                             messageBubble(message)
                                 .id(message.id)
                         }
-
                     }
                     .padding()
                 }
                 .onChange(of: messages.count) { _ in
+                    guard isNearBottom else { return }
+
                     if let last = messages.last {
                         proxy.scrollTo(last.id, anchor: .bottom)
                     }
                 }
             }
 
-            messageInputBar
+            // ✅ INPUT AREA SWITCHES BASED ON AUTH
+            if isGuest {
+                guestCTA
+            } else {
+                messageInputBar
+            }
         }
         .navigationTitle(chatTitle)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+
+            // 🚫 Don’t even start listeners for guest
+            if isGuest {
+                showLoginAlert = true
+                return
+            }
+
             startListening()
             startBookingListener()
-            resetUnreadCounter()
+            markAsRead()
+            setActiveChat()
         }
         .onDisappear {
             stopListening()
+            clearActiveChat()
+        }
+        .alert("Sign in required", isPresented: $showLoginAlert) {
+            Button("Sign in") {
+                goToLogin()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You need an account to view and send messages.")
         }
     }
+}
 
-    // MARK: - Chat Title
+//
+// MARK: - Title
+//
 
-    private var chatTitle: String {
+private extension BookingChatView {
 
+    var chatTitle: String {
         guard let booking else { return "Chat" }
 
-        if currentUserRole == "customer" {
-            return booking.businessName ?? "Business"
-        } else {
-            return booking.customerName ?? "Customer"
+        return currentUserRole == "customer"
+            ? (booking.businessName ?? "Business")
+            : (booking.customerName ?? "Customer")
+    }
+}
+
+//
+// MARK: - Guest CTA
+//
+
+private extension BookingChatView {
+
+    var guestCTA: some View {
+        VStack(spacing: 12) {
+            Text("Sign in to view and send messages")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Button {
+                goToLogin()
+            } label: {
+                Text("Sign in")
+                    .frame(maxWidth: .infinity)
+            }
+            .padding()
+            .background(AppColors.primary)
+            .foregroundColor(.white)
+            .cornerRadius(12)
         }
+        .padding()
     }
 
-    // MARK: - Input
+    func goToLogin() {
+        authManager.requireFullLogin()
 
-    private var messageInputBar: some View {
+        // ✅ Save where to return
+        nav.pendingRoute = AppRoute.bookingChat(bookingId: bookingId)
 
+        nav.reset()
+        nav.path.append(AppRoute.authEntry)
+    }
+    }
+
+//
+// MARK: - Input
+//
+
+private extension BookingChatView {
+
+    var messageInputBar: some View {
         HStack {
 
             TextField("Message…", text: $newMessage)
@@ -87,10 +162,15 @@ struct BookingChatView: View {
         }
         .padding()
     }
+}
 
-    // MARK: - Bubble
+//
+// MARK: - Message Bubble
+//
 
-    private func messageBubble(_ message: BookingMessage) -> some View {
+private extension BookingChatView {
+
+    func messageBubble(_ message: BookingMessage) -> some View {
 
         let isMe = message.senderId == Auth.auth().currentUser?.uid
 
@@ -98,104 +178,199 @@ struct BookingChatView: View {
 
             if isMe { Spacer() }
 
-            Text(message.text)
-                .padding()
-                .background(isMe ? AppColors.primary : Color(.secondarySystemBackground))
-                .foregroundColor(isMe ? .white : .primary)
-                .cornerRadius(12)
+            VStack(alignment: .leading, spacing: 6) {
+
+                Text(message.text)
+                    .padding()
+                    .background(isMe ? AppColors.primary : Color(.secondarySystemBackground))
+                    .foregroundColor(isMe ? .white : .primary)
+                    .cornerRadius(12)
+                    .frame(maxWidth: 260, alignment: isMe ? .trailing : .leading)
+
+                HStack {
+                    if isMe { Spacer() }
+
+                    Text(timeAgoString(from: message.createdAt ?? Date()))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+
+                    if !isMe { Spacer() }
+                }
+
+                if isMe {
+                    HStack {
+                        Spacer()
+                        Text("Sent")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
 
             if !isMe { Spacer() }
         }
     }
+}
 
-    // MARK: - Listeners
+//
+// MARK: - Time
+//
 
-    private func startListening() {
+private extension BookingChatView {
 
+    func timeAgoString(from date: Date) -> String {
+        let seconds = Int(Date().timeIntervalSince(date))
+
+        if seconds < 60 { return "Now" }
+        if seconds < 3600 { return "\(seconds / 60)m" }
+        if seconds < 86400 { return "\(seconds / 3600)h" }
+        if seconds < 172800 { return "Yesterday" }
+
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        return formatter.string(from: date)
+    }
+}
+
+//
+// MARK: - Firestore
+//
+
+private extension BookingChatView {
+
+    func startListening() {
         listener = db.collection("bookings")
             .document(bookingId)
             .collection("messages")
             .order(by: "createdAt", descending: false)
             .addSnapshotListener { snapshot, _ in
 
-                guard let documents = snapshot?.documents else { return }
+                guard let docs = snapshot?.documents else { return }
+
+                let fetched = docs.compactMap {
+                    try? $0.data(as: BookingMessage.self)
+                }
 
                 DispatchQueue.main.async {
-                    self.messages = documents.compactMap {
-                        try? $0.data(as: BookingMessage.self)
+                    self.messages = fetched.sorted {
+                        ($0.createdAt ?? Date()) < ($1.createdAt ?? Date())
                     }
                 }
             }
     }
 
-    private func startBookingListener() {
-
+    func startBookingListener() {
         bookingListener = db.collection("bookings")
             .document(bookingId)
             .addSnapshotListener { snapshot, _ in
-
                 guard let snapshot else { return }
-
-                DispatchQueue.main.async {
-                    self.booking = try? snapshot.data(as: Booking.self)
-                }
+                self.booking = try? snapshot.data(as: Booking.self)
             }
     }
 
-    private func stopListening() {
+    func stopListening() {
         listener?.remove()
         bookingListener?.remove()
         listener = nil
         bookingListener = nil
     }
+}
 
-    // MARK: - Send
+//
+// MARK: - Send
+//
 
-    private func send() {
+private extension BookingChatView {
 
+    func send() {
         let trimmed = newMessage.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
 
-        guard !trimmed.isEmpty, trimmed.count <= 2000 else { return }
+        guard let user = Auth.auth().currentUser else { return }
+
+        // 🚫 BLOCK GUEST SEND
+        if user.isAnonymous {
+            showLoginAlert = true
+            return
+        }
+
+        let uid = user.uid
 
         let tempMessage = BookingMessage(
             id: UUID().uuidString,
-            senderId: Auth.auth().currentUser?.uid ?? "",
+            senderId: uid,
             senderRole: currentUserRole,
             text: trimmed,
             createdAt: Date()
         )
 
         messages.append(tempMessage)
+        newMessage = ""
+
+        guard let booking else { return }
 
         repo.sendMessage(
             bookingId: bookingId,
-            businessId: businessId,
-            customerId: customerId,
+            businessId: booking.businessId,
+            customerId: booking.customerId,
             text: trimmed,
             senderRole: currentUserRole
         ) { result in
-
-            DispatchQueue.main.async {
-                switch result {
-                case .success:
-                    newMessage = ""
-                case .failure(let error):
-                    print("Chat send error:", error)
-                }
+            if case .failure(let error) = result {
+                print("❌ Send failed:", error.localizedDescription)
             }
         }
     }
+}
 
-    // MARK: - Unread Reset
+//
+// MARK: - Read
+//
 
-    private func resetUnreadCounter() {
+private extension BookingChatView {
 
-        let bookingRef = db.collection("bookings").document(bookingId)
+    func markAsRead() {
+        let ref = db.collection("bookings").document(bookingId)
 
         if currentUserRole == "customer" {
-            bookingRef.updateData(["unreadForCustomer": 0])
+            ref.updateData(["unreadForCustomer": 0])
         } else {
-            bookingRef.updateData(["unreadForBusiness": 0])
+            ref.updateData(["unreadForBusiness": 0])
         }
+    }
+}
+
+//
+// MARK: - Active Chat
+//
+
+private extension BookingChatView {
+
+    func setActiveChat() {
+        guard let user = Auth.auth().currentUser else { return }
+        if user.isAnonymous { return }
+
+        let uid = user.uid
+        guard !isActiveChatSet else { return }
+
+        db.collection("users")
+            .document(uid)
+            .setData([
+                "activeChatBookingId": bookingId
+            ], merge: true)
+
+        isActiveChatSet = true
+    }
+
+    func clearActiveChat() {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+
+        db.collection("users")
+            .document(uid)
+            .setData([
+                "activeChatBookingId": FieldValue.delete()
+            ], merge: true)
+
+        isActiveChatSet = false
     }
 }

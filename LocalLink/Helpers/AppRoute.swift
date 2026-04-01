@@ -3,10 +3,9 @@ import Foundation
 enum AppRoute: Hashable {
     
     // Auth
-    case login
-    case register
     case authEntry
-    
+    case login(String)
+    case signUp(String)
     case roleSelection
     
     // Customer
@@ -42,7 +41,6 @@ enum AppRoute: Hashable {
         role: String
     )
     
-    // NEW
     case bookingChat(
         bookingId: String
     )

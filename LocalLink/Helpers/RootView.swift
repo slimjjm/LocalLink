@@ -9,32 +9,50 @@ struct RootView: View {
     var body: some View {
         
         NavigationStack(path: $nav.path) {
+            
             rootContent
+            
                 .navigationDestination(for: AppRoute.self) { route in
                     destination(for: route)
                 }
         }
+        
+        // ✅ Return to pending route after login
+        .onChange(of: authManager.isAuthenticated) { isAuthenticated in
+            
+            guard isAuthenticated else { return }
+            
+            if let pending = nav.pendingRoute {
+                nav.reset()
+                nav.path.append(pending)
+                nav.pendingRoute = nil
+            }
+        }
+        
+        // ✅ Reset navigation when role changes
         .onReceive(NotificationCenter.default.publisher(for: .didSelectRole)) { _ in
             nav.reset()
         }
+        
+        // 🔔 Deep link into booking chat
         .onChange(of: notificationRouter.bookingIdToOpen) { bookingId in
             
             guard let bookingId else { return }
             
-            // ✅ Clean navigation (correct label)
-            nav.path.append(.bookingChat(bookingId: bookingId))
-            
-            // ✅ Reset after navigation
+            nav.path.append(AppRoute.bookingChat(bookingId: bookingId))
             notificationRouter.bookingIdToOpen = nil
         }
     }
-    
-    // MARK: - Root Router
+}
+
+// MARK: - ROOT ROUTER
+
+private extension RootView {
     
     @ViewBuilder
-    private var rootContent: some View {
+    var rootContent: some View {
         
-        if !authManager.isAuthenticated && authManager.role == nil {
+        if !authManager.isAuthenticated {
             
             WelcomeView()
             
@@ -58,22 +76,18 @@ struct RootView: View {
             RoleSelectionView()
         }
     }
-    
-    // MARK: - Navigation Destinations
+}
+
+// MARK: - DESTINATIONS
+
+private extension RootView {
     
     @ViewBuilder
-    private func destination(for route: AppRoute) -> some View {
+    func destination(for route: AppRoute) -> some View {
         
         switch route {
             
-            
-        case .login:
-            AuthEntryView()
-            
-        case .register:
-            AuthEntryView()
-            
-            // MARK: - Auth
+        // MARK: - Auth
             
         case .authEntry:
             AuthEntryView()
@@ -81,12 +95,14 @@ struct RootView: View {
         case .roleSelection:
             RoleSelectionView()
             
-            // MARK: - Customer
+            
+        // MARK: - Customer
             
         case .customerHome:
             CustomerHomeView()
             
-            // MARK: - Business
+            
+        // MARK: - Business
             
         case .businessGate:
             BusinessGateView()
@@ -97,7 +113,8 @@ struct RootView: View {
         case .businessHome:
             BusinessHomeView()
             
-            // MARK: - Booking Flow
+            
+        // MARK: - Booking Flow
             
         case .bookingSummary(
             let businessId,
@@ -108,7 +125,6 @@ struct RootView: View {
             let time,
             let customerAddress
         ):
-            
             BookingSummaryView(
                 businessId: businessId,
                 serviceId: serviceId,
@@ -120,46 +136,44 @@ struct RootView: View {
             )
             
         case .bookingSuccess(let businessId, let bookingId):
-            
             BookingSuccessView(
                 businessId: businessId,
                 bookingId: bookingId
             )
             
         case .bookingDetail(let bookingId, let role):
-            
             BookingDetailView(
                 bookingId: bookingId,
                 currentUserRole: role
             )
             
-            // MARK: - Booking Chat
+            
+        // MARK: - Chat
             
         case .bookingChat(let bookingId):
-            
-            // ✅ SAFE DEFAULT VERSION (no crashes, works now)
             BookingChatView(
                 bookingId: bookingId,
-                businessId: "",
+                businessId: "",        // ✅ leave empty (BookingChatView loads it)
                 customerId: "",
                 currentUserRole: authManager.role == .business ? "business" : "customer"
             )
             
-            // MARK: - Staff
+            
+        // MARK: - Staff
             
         case .editStaffSkills(let businessId, let staffId, _):
-            
             EditStaffSkillsView(
                 businessId: businessId,
                 staffId: staffId
             )
             
         case .editWeeklyAvailability(let businessId, let staffId, _):
-            
             WeeklyAvailabilityEditView(
                 businessId: businessId,
                 staffId: staffId
             )
+        default:
+            Text("Coming soon")
         }
     }
 }

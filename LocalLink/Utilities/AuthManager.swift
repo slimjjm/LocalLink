@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import FirebaseAuth
 import FirebaseFirestore
 import FirebaseCore
@@ -28,6 +29,8 @@ final class AuthManager: ObservableObject {
     @AppStorage("userRole") private var storedRole: String?
     @AppStorage("allowAnonymousAuth") private var allowAnonymousAuth = true
     
+    private let emailForSignInKey = "emailForSignIn"
+    
     // MARK: - Private
     
     private lazy var db = Firestore.firestore()
@@ -47,13 +50,8 @@ final class AuthManager: ObservableObject {
             Task { @MainActor in
                 self.errorMessage = nil
                 
-                if let user, !user.isAnonymous {
-                    self.isAuthenticated = true
-                } else {
-                    self.isAuthenticated = false
-                }
-                
                 guard let user else {
+                    self.isAuthenticated = false
                     self.role = nil
                     self.isRoleLoading = false
                     self.showEmailVerification = false
@@ -61,13 +59,21 @@ final class AuthManager: ObservableObject {
                 }
                 
                 if user.isAnonymous {
-                    self.role = nil
+                    self.isAuthenticated = true   // 🔥 KEY CHANGE
                     self.isRoleLoading = false
-                    self.showEmailVerification = false
                     return
                 }
                 
+                self.isAuthenticated = true
                 self.isRoleLoading = true
+                
+                if !user.isEmailVerified,
+                   self.isPasswordProviderUser(user) {
+                    self.showEmailVerification = true
+                } else {
+                    self.showEmailVerification = false
+                }
+                
                 self.loadRoleFromFirestore()
             }
         }
@@ -82,12 +88,10 @@ final class AuthManager: ObservableObject {
             Auth.auth().removeStateDidChangeListener(authListenerHandle)
         }
     }
-
     
     // MARK: - Email Existence Check
-
+    
     func checkIfUserExists(email: String, completion: @escaping (Bool) -> Void) {
-        
         let cleanedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         
         guard !cleanedEmail.isEmpty else {
@@ -96,50 +100,45 @@ final class AuthManager: ObservableObject {
         }
         
         Auth.auth().fetchSignInMethods(forEmail: cleanedEmail) { methods, error in
-            
-            if let error = error {
-                print("❌ Email check error:", error.localizedDescription)
-                DispatchQueue.main.async {
-                    completion(false)
-                }
-                return
-            }
-            
-            let exists = !(methods ?? []).isEmpty
-            
             DispatchQueue.main.async {
+                if let error {
+                    print("❌ Email check error:", error.localizedDescription)
+                    completion(false)
+                    return
+                }
+                
+                let exists = !(methods ?? []).isEmpty
                 completion(exists)
             }
         }
     }
+    
     // MARK: - Role Loading
     
-    func loadUserRole(uid: String) {
-        db.collection("users").document(uid).getDocument { snapshot, error in
+    func loadUserRole(uid: String, completion: (() -> Void)? = nil) {
+        db.collection("users").document(uid).getDocument { [weak self] snapshot, error in
+            guard let self else { return }
+            
             DispatchQueue.main.async {
-                if let error {
-                    print("❌ Failed to load role:", error.localizedDescription)
-                    self.role = .customer
-                    self.storedRole = UserRole.customer.rawValue
-                    return
-                }
-                
                 if let roleString = snapshot?.data()?["role"] as? String,
                    let parsedRole = UserRole(rawValue: roleString) {
                     self.role = parsedRole
                     self.storedRole = parsedRole.rawValue
-                    print("✅ Role loaded:", parsedRole.rawValue)
                 } else {
-                    print("⚠️ No role found, defaulting to customer")
                     self.role = .customer
                     self.storedRole = UserRole.customer.rawValue
                 }
+                
+                self.isRoleLoading = false
+                completion?()
             }
         }
     }
     
     func loadRoleFromFirestore() {
         guard let uid = Auth.auth().currentUser?.uid else {
+            role = nil
+            storedRole = nil
             isRoleLoading = false
             return
         }
@@ -155,16 +154,20 @@ final class AuthManager: ObservableObject {
                     return
                 }
                 
-                guard let data = snapshot?.data(),
-                      let roleString = data["role"] as? String,
-                      let parsedRole = UserRole(rawValue: roleString) else {
-                    self.role = nil
-                    self.storedRole = nil
-                    return
+                if let roleString = snapshot?.data()?["role"] as? String,
+                   let parsedRole = UserRole(rawValue: roleString) {
+                    self.role = parsedRole
+                    self.storedRole = parsedRole.rawValue
+                } else {
+                    self.role = .customer
+                    self.storedRole = UserRole.customer.rawValue
+                    
+                    if let uid = Auth.auth().currentUser?.uid {
+                        self.db.collection("users")
+                            .document(uid)
+                            .setData(["role": UserRole.customer.rawValue], merge: true)
+                    }
                 }
-                
-                self.role = parsedRole
-                self.storedRole = parsedRole.rawValue
             }
         }
     }
@@ -182,7 +185,7 @@ final class AuthManager: ObservableObject {
                 self.isLoading = false
                 
                 if let error {
-                    self.errorMessage = error.localizedDescription
+                    self.errorMessage = self.messageForAuthError(error as NSError)
                     completion(false)
                     return
                 }
@@ -209,6 +212,7 @@ final class AuthManager: ObservableObject {
     func login(email: String, password: String, completion: @escaping (Bool) -> Void) {
         errorMessage = nil
         isLoading = true
+        showEmailVerification = false
         
         let cleanedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         
@@ -219,40 +223,54 @@ final class AuthManager: ObservableObject {
             return
         }
         
-        if let user = Auth.auth().currentUser, !user.isAnonymous {
-            do {
-                try Auth.auth().signOut()
-                print("✅ Cleared existing session for:", user.uid)
-            } catch {
-                print("❌ Failed to sign out:", error.localizedDescription)
+        let signInBlock = {
+            Auth.auth().signIn(withEmail: cleanedEmail, password: password) { [weak self] result, error in
+                guard let self else { return }
+                
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    
+                    if let error {
+                        self.errorMessage = self.messageForAuthError(error as NSError)
+                        print("🔥 Login error:", error.localizedDescription)
+                        completion(false)
+                        return
+                    }
+                    
+                    guard let user = result?.user else {
+                        self.errorMessage = "Login failed."
+                        completion(false)
+                        return
+                    }
+                    
+                    self.ensureUserDocument(user: user)
+                    self.isAuthenticated = true
+                    self.loadUserRole(uid: user.uid)
+                    
+                    if self.isPasswordProviderUser(user), !user.isEmailVerified {
+                        self.showEmailVerification = true
+                    }
+                    
+                    completion(true)
+                }
             }
         }
         
-        Auth.auth().signIn(withEmail: cleanedEmail, password: password) { [weak self] result, error in
-            guard let self else { return }
-            
-            DispatchQueue.main.async {
-                self.isLoading = false
-                
-                if let error {
-                    let nsError = error as NSError
-                    self.errorMessage = self.messageForAuthError(nsError)
-                    print("🔥 Login error:", error.localizedDescription)
-                    completion(false)
-                    return
+        if let currentUser = Auth.auth().currentUser, currentUser.isAnonymous {
+            currentUser.delete { error in
+                DispatchQueue.main.async {
+                    if let error {
+                        self.isLoading = false
+                        self.errorMessage = error.localizedDescription
+                        completion(false)
+                        return
+                    }
+                    
+                    signInBlock()
                 }
-                
-                guard let user = result?.user else {
-                    self.errorMessage = "Login failed."
-                    completion(false)
-                    return
-                }
-                
-                self.ensureUserDocument(user: user)
-                self.isAuthenticated = true
-                self.loadUserRole(uid: user.uid)
-                completion(true)
             }
+        } else {
+            signInBlock()
         }
     }
     
@@ -271,6 +289,18 @@ final class AuthManager: ObservableObject {
             completion(false)
             return
         }
+        
+        guard let bundleID = Bundle.main.bundleIdentifier else {
+            isLoading = false
+            errorMessage = "Missing app bundle identifier."
+            completion(false)
+            return
+        }
+        
+        let actionCodeSettings = ActionCodeSettings()
+        actionCodeSettings.handleCodeInApp = true
+        actionCodeSettings.setIOSBundleID(bundleID)
+        actionCodeSettings.url = URL(string: "https://locallink-995a5.web.app/open")!
         
         if let user = Auth.auth().currentUser, user.isAnonymous {
             let credential = EmailAuthProvider.credential(
@@ -298,17 +328,7 @@ final class AuthManager: ObservableObject {
                         return
                     }
                     
-                    self.ensureUserDocument(user: user)
-                    user.sendEmailVerification { sendError in
-                        if let sendError {
-                            print("⚠️ Email verification send failed:", sendError.localizedDescription)
-                        }
-                    }
-                    
-                    self.allowAnonymousAuth = false
-                    self.showEmailVerification = true
-                    self.isAuthenticated = true
-                    self.loadUserRole(uid: user.uid)
+                    self.finishSignup(user: user, actionCodeSettings: actionCodeSettings)
                     completion(true)
                 }
             }
@@ -336,25 +356,251 @@ final class AuthManager: ObservableObject {
                     return
                 }
                 
-                self.ensureUserDocument(user: user)
-                user.sendEmailVerification { sendError in
-                    if let sendError {
-                        print("⚠️ Email verification send failed:", sendError.localizedDescription)
-                    }
-                }
-                
-                self.allowAnonymousAuth = false
-                self.showEmailVerification = true
-                self.isAuthenticated = true
-                self.loadUserRole(uid: user.uid)
+                self.finishSignup(user: user, actionCodeSettings: actionCodeSettings)
                 completion(true)
             }
         }
     }
     
-    // Convenience alias if any older view still calls signup(...)
     func signup(email: String, password: String, completion: @escaping (Bool) -> Void) {
         signUp(email: email, password: password, completion: completion)
+    }
+    
+    private func finishSignup(user: User, actionCodeSettings: ActionCodeSettings) {
+        ensureUserDocument(user: user)
+        
+        user.sendEmailVerification(with: actionCodeSettings) { error in
+            if let error {
+                print("⚠️ Email verification send failed:", error.localizedDescription)
+            } else {
+                print("✅ Verification email sent")
+            }
+        }
+        
+        allowAnonymousAuth = false
+        showEmailVerification = true
+        isAuthenticated = true
+        loadUserRole(uid: user.uid)
+    }
+    
+    // MARK: - Email Verification
+    
+    func resendVerificationEmail(completion: @escaping (Bool) -> Void) {
+        
+        guard let user = Auth.auth().currentUser else {
+            errorMessage = "No signed-in user."
+            completion(false)
+            return
+        }
+        
+        guard let bundleID = Bundle.main.bundleIdentifier else {
+            errorMessage = "Missing app bundle identifier."
+            completion(false)
+            return
+        }
+        
+        isLoading = true
+        errorMessage = nil
+        
+        let actionCodeSettings = ActionCodeSettings()
+        actionCodeSettings.handleCodeInApp = true
+        actionCodeSettings.setIOSBundleID(bundleID)
+        actionCodeSettings.url = URL(string: "https://locallink-995a5.web.app/open")
+        
+        user.sendEmailVerification(with: actionCodeSettings) { [weak self] error in
+            
+            guard let self else { return }
+            
+            DispatchQueue.main.async {
+                self.isLoading = false
+                
+                if let error {
+                    self.errorMessage = error.localizedDescription
+                    completion(false)
+                    return
+                }
+                
+                completion(true)
+            }
+        }
+    }
+    
+    func refreshEmailVerificationStatus(completion: ((Bool) -> Void)? = nil) {
+        
+        guard let user = Auth.auth().currentUser else {
+            showEmailVerification = false
+            completion?(false)
+            return
+        }
+        
+        user.reload { [weak self] error in
+            
+            guard let self else { return }
+            
+            DispatchQueue.main.async {
+                
+                if let error {
+                    self.errorMessage = error.localizedDescription
+                    completion?(false)
+                    return
+                }
+                
+                if user.isEmailVerified || !self.isPasswordProviderUser(user) {
+                    self.showEmailVerification = false
+                } else {
+                    self.showEmailVerification = true
+                }
+                
+                completion?(user.isEmailVerified)
+            }
+        }
+    }
+    
+    func clearEmailVerificationPrompt() {
+        showEmailVerification = false
+    }
+    
+    //
+    // MARK: - Magic Link (Send)
+    //
+    
+    func sendMagicLink(email: String, completion: @escaping (Bool) -> Void) {
+        
+        isLoading = true
+        errorMessage = nil
+        
+        let cleanedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard !cleanedEmail.isEmpty else {
+            isLoading = false
+            errorMessage = "Enter your email"
+            completion(false)
+            return
+        }
+        
+        guard let bundleID = Bundle.main.bundleIdentifier else {
+            isLoading = false
+            errorMessage = "Missing app bundle identifier."
+            completion(false)
+            return
+        }
+        
+        let actionCodeSettings = ActionCodeSettings()
+        actionCodeSettings.url = URL(string: "https://locallink-995a5.web.app/open")!
+        actionCodeSettings.handleCodeInApp = true
+        actionCodeSettings.setIOSBundleID(bundleID)
+        
+        Auth.auth().sendSignInLink(toEmail: cleanedEmail, actionCodeSettings: actionCodeSettings) { [weak self] error in
+            
+            guard let self else { return }
+            
+            DispatchQueue.main.async {
+                self.isLoading = false
+                
+                if let error {
+                    self.errorMessage = self.messageForAuthError(error as NSError)
+                    completion(false)
+                    return
+                }
+                
+                UserDefaults.standard.set(cleanedEmail, forKey: self.emailForSignInKey)
+                completion(true)
+            }
+        }
+    }
+    
+    //
+    func completeMagicLinkSignIn(from url: URL, completion: @escaping (Bool) -> Void) {
+        
+        let link = url.absoluteString
+        print("🔥 Incoming magic link:", link)
+        
+        let decodedLink = link.removingPercentEncoding ?? link
+
+        guard Auth.auth().isSignIn(withEmailLink: decodedLink) else {
+            print("❌ Invalid email link:", decodedLink)
+            completion(false)
+            return
+        }
+        
+        guard let email = UserDefaults.standard.string(forKey: emailForSignInKey),
+              !email.isEmpty else {
+            errorMessage = "Missing email. Request a new link."
+            completion(false)
+            return
+        }
+        
+        isLoading = true
+        errorMessage = nil
+        
+        func performSignIn() {
+            
+            Auth.auth().signIn(withEmail: email, link: link) { [weak self] result, error in
+                
+                guard let self else { return }
+                
+                DispatchQueue.main.async {
+                    
+                    self.isLoading = false
+                    
+                    if let error {
+                        print("❌ Sign-in error:", error.localizedDescription)
+                        self.errorMessage = self.messageForAuthError(error as NSError)
+                        completion(false)
+                        return
+                    }
+                    
+                    guard let user = result?.user else {
+                        self.errorMessage = "Magic link sign-in failed."
+                        completion(false)
+                        return
+                    }
+                    
+                    print("✅ Signed in:", user.uid)
+                    
+                    UserDefaults.standard.removeObject(forKey: self.emailForSignInKey)
+                    
+                    self.ensureUserDocument(user: user)
+                    self.allowAnonymousAuth = false
+                    self.showEmailVerification = false
+
+                    // 🔥 Load role FIRST, then authenticate
+                    self.loadUserRole(uid: user.uid) {
+                        
+                        self.isAuthenticated = true
+                        
+                        NotificationCenter.default.post(name: .didSelectRole, object: nil)
+                        
+                        completion(true)
+                    }
+                }
+            }
+        }
+        
+        if let currentUser = Auth.auth().currentUser, currentUser.isAnonymous {
+            
+            print("🔥 Deleting anonymous user before upgrade")
+            
+            currentUser.delete { [weak self] error in
+                
+                guard let self else { return }
+                
+                DispatchQueue.main.async {
+                    
+                    if let error {
+                        self.isLoading = false
+                        self.errorMessage = error.localizedDescription
+                        completion(false)
+                        return
+                    }
+                    
+                    performSignIn()
+                }
+            }
+            
+        } else {
+            performSignIn()
+        }
     }
     
     // MARK: - Google Sign In
@@ -364,17 +610,16 @@ final class AuthManager: ObservableObject {
         errorMessage = nil
         showEmailVerification = false
         
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let rootVC = windowScene.windows.first?.rootViewController else {
+        guard let clientID = FirebaseApp.app()?.options.clientID else {
             isLoading = false
-            errorMessage = "Unable to access the login window."
+            errorMessage = "Missing Firebase client ID."
             completion(false)
             return
         }
         
-        guard let clientID = FirebaseApp.app()?.options.clientID else {
+        guard let rootVC = topViewController() else {
             isLoading = false
-            errorMessage = "Missing Firebase client ID."
+            errorMessage = "Unable to access the login window."
             completion(false)
             return
         }
@@ -443,38 +688,20 @@ final class AuthManager: ObservableObject {
                         if nsError.code == AuthErrorCode.credentialAlreadyInUse.rawValue,
                            let updatedCredential = nsError.userInfo[AuthErrorUserInfoUpdatedCredentialKey] as? AuthCredential {
                             
-                            Auth.auth().signIn(with: updatedCredential) { [weak self] result, error in
-                                guard let self else { return }
-                                
-                                DispatchQueue.main.async {
-                                    self.isLoading = false
-                                    
-                                    if let error {
-                                        self.errorMessage = error.localizedDescription
-                                        completion(false)
-                                        return
-                                    }
-                                    
-                                    guard let user = result?.user else {
-                                        self.errorMessage = "Authentication failed."
-                                        completion(false)
-                                        return
-                                    }
-                                    
-                                    self.ensureUserDocument(user: user)
-                                    self.allowAnonymousAuth = false
-                                    self.showEmailVerification = false
-                                    self.isAuthenticated = true
-                                    self.loadUserRole(uid: user.uid)
-                                    completion(true)
-                                }
-                            }
-                            
+                            self.signInDirectly(with: updatedCredential, completion: completion)
+                            return
+                        }
+                        
+                        if nsError.code == AuthErrorCode.emailAlreadyInUse.rawValue ||
+                            nsError.code == AuthErrorCode.accountExistsWithDifferentCredential.rawValue {
+                            self.isLoading = false
+                            self.errorMessage = self.messageForAuthError(nsError)
+                            completion(false)
                             return
                         }
                         
                         self.isLoading = false
-                        self.errorMessage = error.localizedDescription
+                        self.errorMessage = self.messageForAuthError(nsError)
                         completion(false)
                         return
                     }
@@ -508,7 +735,7 @@ final class AuthManager: ObservableObject {
                 self.isLoading = false
                 
                 if let error {
-                    self.errorMessage = error.localizedDescription
+                    self.errorMessage = self.messageForAuthError(error as NSError)
                     completion(false)
                     return
                 }
@@ -534,22 +761,34 @@ final class AuthManager: ObservableObject {
     func ensureUserDocument(user: User) {
         let ref = db.collection("users").document(user.uid)
         
-        ref.getDocument { snapshot, error in
+        ref.getDocument { [weak self] snapshot, error in
+            guard let self else { return }
+            
             if let error {
                 print("❌ Error checking user document:", error.localizedDescription)
                 return
             }
             
+            let baseData: [String: Any] = [
+                "email": user.email ?? "",
+                "role": "customer",
+                "createdAt": FieldValue.serverTimestamp()
+            ]
+            
             if snapshot?.exists == false {
-                ref.setData([
-                    "email": user.email ?? "",
-                    "role": "customer",
-                    "createdAt": FieldValue.serverTimestamp()
-                ]) { error in
+                ref.setData(baseData) { error in
                     if let error {
                         print("❌ Error creating user document:", error.localizedDescription)
                     } else {
                         print("✅ Created Firestore user profile")
+                    }
+                }
+            } else {
+                ref.setData([
+                    "email": user.email ?? ""
+                ], merge: true) { error in
+                    if let error {
+                        print("❌ Error syncing user email:", error.localizedDescription)
                     }
                 }
             }
@@ -568,10 +807,6 @@ final class AuthManager: ObservableObject {
         
         NotificationCenter.default.post(name: .didSelectRole, object: nil)
         syncRoleToFirestore(role)
-    }
-    
-    func clearEmailVerificationPrompt() {
-        showEmailVerification = false
     }
     
     func clearRole() {
@@ -606,6 +841,37 @@ final class AuthManager: ObservableObject {
             .setData(["role": role.rawValue], merge: true)
     }
     
+    // MARK: - Helpers
+    
+    private func isPasswordProviderUser(_ user: User) -> Bool {
+        user.providerData.contains { $0.providerID == EmailAuthProviderID }
+    }
+    
+    private func topViewController(
+        base: UIViewController? = UIApplication.shared
+            .connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first(where: \.isKeyWindow)?
+            .rootViewController
+    ) -> UIViewController? {
+        
+        if let nav = base as? UINavigationController {
+            return topViewController(base: nav.visibleViewController)
+        }
+        
+        if let tab = base as? UITabBarController,
+           let selected = tab.selectedViewController {
+            return topViewController(base: selected)
+        }
+        
+        if let presented = base?.presentedViewController {
+            return topViewController(base: presented)
+        }
+        
+        return base
+    }
+    
     // MARK: - Error Mapping
     
     private func messageForAuthError(_ error: NSError, isSignup: Bool = false) -> String {
@@ -622,10 +888,22 @@ final class AuthManager: ObservableObject {
             return isSignup ? "Account already exists. Please log in." : "Email already in use"
         case AuthErrorCode.weakPassword.rawValue:
             return "Password must be at least 6 characters"
+        case AuthErrorCode.networkError.rawValue:
+            return "Network error. Check your connection and try again."
         case AuthErrorCode.tooManyRequests.rawValue:
             return "Too many attempts. Please try again later."
+        case AuthErrorCode.userDisabled.rawValue:
+            return "This account has been disabled."
+        case AuthErrorCode.credentialAlreadyInUse.rawValue:
+            return "That sign-in method is already linked to another account."
+        case AuthErrorCode.accountExistsWithDifferentCredential.rawValue:
+            return "An account already exists with a different sign-in method."
+        case AuthErrorCode.invalidActionCode.rawValue:
+            return "This link is invalid or has expired."
+        case AuthErrorCode.expiredActionCode.rawValue:
+            return "This link has expired. Please request a new one."
         default:
-            return isSignup ? "Could not create account" : "Login failed. Please try again."
+            return error.localizedDescription.isEmpty ? "Something went wrong. Please try again." : error.localizedDescription
         }
     }
 }

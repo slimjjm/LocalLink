@@ -27,7 +27,7 @@ struct BusinessGateView: View {
                 errorView(message: errorMessage)
             }
             else {
-                ProgressView() // safety fallback
+                ProgressView()
             }
         }
         .navigationTitle("Business")
@@ -67,6 +67,7 @@ private extension BusinessGateView {
                     .foregroundColor(.secondary)
             }
 
+            // ✅ SIGN IN CTA (for guest / logged out)
             if showAuthCTA {
                 Button {
                     goToAuth()
@@ -80,6 +81,7 @@ private extension BusinessGateView {
                 }
             }
 
+            // ✅ EMAIL VERIFY CTA
             if showResendVerify {
                 Button("Resend verification email") {
                     resendVerification()
@@ -92,9 +94,11 @@ private extension BusinessGateView {
 
             Spacer()
 
+            // ✅ SWITCH BACK TO CUSTOMER
             Button {
                 authManager.setRole(.customer)
-                nav.path = [.customerHome]
+                nav.reset()
+                nav.path.append(.customerHome)
             } label: {
                 Text("Switch to customer")
                     .frame(maxWidth: .infinity)
@@ -141,13 +145,15 @@ private extension BusinessGateView {
             return
         }
 
+        // ✅ FIXED: Guest flow handled cleanly
         if user.isAnonymous {
             isLoading = false
-            errorMessage = "Create an account to start your business on LocalLink."
+            errorMessage = "You need an account to create a business."
             showAuthCTA = true
             return
         }
 
+        // ✅ Email verification check
         if !user.isEmailVerified {
             isLoading = false
             errorMessage = "Please verify your email before managing a business."
@@ -155,17 +161,26 @@ private extension BusinessGateView {
             return
         }
 
+        // ✅ Check if business exists
         db.collection("businesses")
             .whereField("ownerId", isEqualTo: user.uid)
             .limit(to: 1)
-            .getDocuments { snapshot, _ in
+            .getDocuments { snapshot, error in
 
                 DispatchQueue.main.async {
 
+                    if let error {
+                        self.errorMessage = error.localizedDescription
+                        self.isLoading = false
+                        return
+                    }
+
                     if snapshot?.documents.first != nil {
-                        nav.path = [.businessHome]
+                        nav.reset()
+                        nav.path.append(.businessHome)
                     } else {
-                        nav.path = [.businessOnboarding]
+                        nav.reset()
+                        nav.path.append(.businessOnboarding)
                     }
 
                     isLoading = false

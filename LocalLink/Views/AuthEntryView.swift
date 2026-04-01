@@ -25,7 +25,7 @@ struct AuthEntryView: View {
                 Text("LocalLink")
                     .font(.title.bold())
                 
-                Text("Continue to LocalLink")
+                Text("Log in or create your account")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
@@ -47,6 +47,23 @@ struct AuthEntryView: View {
                     .cornerRadius(12)
             }
             
+            // 🔥 MAGIC LINK BUTTON
+            Button {
+                sendMagicLinkTapped()
+            } label: {
+                Text("Send login link instead")
+                    .font(.footnote)
+                    .foregroundColor(.blue)
+            }
+            .padding(.top, 4)
+            
+            // MARK: - Helper Text
+            Text("Enter your details. If you don’t have an account, we’ll create one for you.")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+            
             // MARK: - Error
             if let errorMessage {
                 Text(errorMessage)
@@ -64,6 +81,7 @@ struct AuthEntryView: View {
                         .frame(maxWidth: .infinity)
                 } else {
                     Text("Continue")
+                        .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -77,9 +95,7 @@ struct AuthEntryView: View {
     }
 }
 
-//
 // MARK: - State
-//
 
 private extension AuthEntryView {
     
@@ -91,9 +107,7 @@ private extension AuthEntryView {
     }
 }
 
-//
-// MARK: - Continue Logic
-//
+// MARK: - Actions
 
 private extension AuthEntryView {
     
@@ -113,7 +127,7 @@ private extension AuthEntryView {
             return
         }
         
-        // 🔥 Try login FIRST (this feels natural to user)
+        // 🔥 Try login FIRST
         authManager.login(email: cleaned, password: password) { success in
             
             DispatchQueue.main.async {
@@ -123,7 +137,7 @@ private extension AuthEntryView {
                     return
                 }
                 
-                // If login failed → try signup
+                // 🔥 If no account → create one
                 if authManager.errorMessage == "No account found for this email" {
                     
                     authManager.signUp(email: cleaned, password: password) { signupSuccess in
@@ -138,7 +152,28 @@ private extension AuthEntryView {
                     }
                     
                 } else {
-                    // Wrong password / other error
+                    errorMessage = authManager.errorMessage
+                }
+            }
+        }
+    }
+    
+    func sendMagicLinkTapped() {
+        
+        errorMessage = nil
+        
+        let cleaned = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard cleaned.contains("@") else {
+            errorMessage = "Enter a valid email"
+            return
+        }
+        
+        authManager.sendMagicLink(email: cleaned) { success in
+            DispatchQueue.main.async {
+                if success {
+                    errorMessage = "Check your email for a login link"
+                } else {
                     errorMessage = authManager.errorMessage
                 }
             }
