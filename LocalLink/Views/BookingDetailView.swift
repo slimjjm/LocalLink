@@ -30,6 +30,8 @@ struct BookingDetailView: View {
                 
                 details(for: booking)
                 
+                cancellationPolicyView(for: booking) // ✅ NEW
+                
                 if booking.status == .completed {
                     ratingSection(for: booking)
                 }
@@ -64,6 +66,130 @@ struct BookingDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { startListening() }
         .onDisappear { stopListening() }
+        .alert("Cancel booking?", isPresented: $showCancelConfirm) {
+            
+            Button("No", role: .cancel) {}
+            
+            Button("Yes, cancel", role: .destructive) {
+                confirmCancel()
+            }
+            
+        } message: {
+            Text(cancelMessage())
+        }
+    }
+    
+    // MARK: - Cancellation UI
+    
+    private func cancelButton(for booking: Booking) -> some View {
+        Button {
+            showCancelConfirm = true
+        } label: {
+            if isCancelling {
+                ProgressView()
+            } else {
+                Text(cancelButtonTitle(for: booking)) // ✅ SMART TEXT
+            }
+        }
+        .primaryButton()
+        .disabled(isCancelling)
+    }
+    
+    private func confirmCancel() {
+        guard let bookingId = booking?.id else { return }
+        
+        isCancelling = true
+        errorMessage = nil
+        
+        bookingService.cancelBooking(bookingId: bookingId) { result in
+            
+            DispatchQueue.main.async {
+                isCancelling = false
+                
+                switch result {
+                case .success:
+                    break
+                    
+                case .failure(let error):
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+    
+    private func cancelMessage() -> String {
+        guard let booking else { return "" }
+        
+        if currentUserRole == "business" {
+            return "This will cancel the booking and refund the customer."
+        }
+        
+        if hoursUntilBooking(booking) >= 24 {
+            return "You will receive a full refund."
+        } else {
+            return "This booking is less than 24 hours away and is non-refundable."
+        }
+    }
+    
+    private func cancelButtonTitle(for booking: Booking) -> String {
+        if currentUserRole == "business" {
+            return "Cancel & Refund"
+        }
+        
+        if hoursUntilBooking(booking) >= 24 {
+            return "Cancel & Refund"
+        } else {
+            return "Cancel (No Refund)"
+        }
+    }
+    
+    private func hoursUntilBooking(_ booking: Booking) -> Double {
+        booking.startDate.timeIntervalSinceNow / 3600
+    }
+    
+    private func canCancel(_ booking: Booking) -> Bool {
+        booking.status == .confirmed
+    }
+    
+    // MARK: - Cancellation Policy View
+    
+    private func cancellationPolicyView(for booking: Booking) -> some View {
+        
+        let deadline = freeCancellationDeadline(booking)
+        let isPast = Date() > deadline
+        
+        return VStack(alignment: .leading, spacing: 6) {
+            
+            Text("Cancellation policy")
+                .font(.headline)
+            
+            if currentUserRole == "business" {
+                Text("If you cancel, the customer will receive a full refund.")
+                    .foregroundColor(.secondary)
+            } else {
+                if isPast {
+                    Text("This booking is now non-refundable.")
+                        .foregroundColor(AppColors.error)
+                } else {
+                    Text("Free cancellation until \(dateFormatter.string(from: deadline))")
+                        .foregroundColor(AppColors.success)
+                }
+            }
+        }
+        .padding()
+        .background(AppColors.primary.opacity(0.08))
+        .cornerRadius(12)
+    }
+    
+    private func freeCancellationDeadline(_ booking: Booking) -> Date {
+        Calendar.current.date(byAdding: .hour, value: -24, to: booking.startDate) ?? booking.startDate
+    }
+    
+    private var dateFormatter: DateFormatter {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        return f
     }
     
     // MARK: - Rating
@@ -91,7 +217,6 @@ struct BookingDetailView: View {
     }
     
     private func submitRating(booking: Booking, value: String) {
-
         guard let id = booking.id else { return }
 
         let bookingRef = db.collection("bookings").document(id)
@@ -127,15 +252,15 @@ struct BookingDetailView: View {
             return nil
 
         }) { _, error in
-
-            if let error = error {
+            if let error {
                 print("Rating failed:", error)
             } else {
                 print("Rating success")
             }
         }
     }
-    // MARK: - Helpers
+    
+    // MARK: - Chat + Unread
     
     private func unreadCount(for booking: Booking) -> Int {
         currentUserRole == "customer"
@@ -162,19 +287,7 @@ struct BookingDetailView: View {
         .primaryButton()
     }
     
-    private func cancelButton(for booking: Booking) -> some View {
-        Button("Cancel Booking", role: .destructive) {
-            performCancel(booking)
-        }
-    }
-    
-    private func performCancel(_ booking: Booking) {
-        isCancelling = true
-    }
-    
-    private func canCancel(_ booking: Booking) -> Bool {
-        booking.status == .confirmed
-    }
+    // MARK: - Firestore
     
     private func startListening() {
         listener = db.collection("bookings")
@@ -188,6 +301,8 @@ struct BookingDetailView: View {
     private func stopListening() {
         listener?.remove()
     }
+    
+    // MARK: - Details
     
     private func details(for booking: Booking) -> some View {
         VStack(alignment: .leading) {

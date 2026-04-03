@@ -1,6 +1,7 @@
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseFunctions
 import MapKit
 
 struct BusinessOnboardingView: View {
@@ -25,6 +26,7 @@ struct BusinessOnboardingView: View {
     @StateObject private var addressSearch = AddressSearchViewModel()
 
     private let db = Firestore.firestore()
+    private let functions = Functions.functions(region: "us-central1")
 
     var body: some View {
 
@@ -32,25 +34,23 @@ struct BusinessOnboardingView: View {
 
             VStack(spacing: 24) {
 
-                // ✅ Conversion-focused headline
                 Text("Start getting bookings")
                     .font(.largeTitle.bold())
+
+             
                 Button {
-                    authManager.clearRole()
+                    authManager.setRole(.customer)
                     nav.reset()
-                    nav.path.append(.roleSelection)
+                    nav.path.append(.customerHome)
                 } label: {
                     HStack {
-                        Image(systemName: "arrow.left")
-                        Text("Back to account type")
+                        Image(systemName: "person.fill")
+                        Text("Continue as customer")
                     }
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(AppColors.primary)
                 }
-                // MARK: Business Name
-
                 VStack(alignment: .leading, spacing: 6) {
-
                     Text("Business name")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -58,8 +58,6 @@ struct BusinessOnboardingView: View {
                     TextField("Business name", text: $businessName)
                         .textFieldStyle(.roundedBorder)
                 }
-
-                // MARK: Address
 
                 VStack(alignment: .leading, spacing: 6) {
 
@@ -76,27 +74,19 @@ struct BusinessOnboardingView: View {
                     if !addressSearch.results.isEmpty && !address.isEmpty {
 
                         ScrollView {
-
                             VStack(spacing: 0) {
-
                                 ForEach(addressSearch.results) { result in
-
                                     Button {
                                         selectAddress(result)
                                     } label: {
-
                                         VStack(alignment: .leading, spacing: 4) {
-
-                                            Text(result.title)
-                                                .font(.headline)
-
+                                            Text(result.title).font(.headline)
                                             Text(result.subtitle)
                                                 .font(.caption)
                                                 .foregroundColor(.secondary)
                                         }
                                         .padding(10)
                                         .frame(maxWidth: .infinity, alignment: .leading)
-                                        .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
 
@@ -110,45 +100,33 @@ struct BusinessOnboardingView: View {
                     }
                 }
 
-                // MARK: Category
-
                 VStack(alignment: .leading, spacing: 6) {
-
                     Text("Category")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
                     Picker("Category", selection: $selectedCategory) {
-
                         Text("Select category").tag(BusinessCategory?.none)
-
-                        ForEach(BusinessCategory.allCases) { category in
-                            Text(category.rawValue).tag(Optional(category))
+                        ForEach(BusinessCategory.allCases) {
+                            Text($0.rawValue).tag(Optional($0))
                         }
                     }
                     .pickerStyle(.menu)
                 }
 
-                // MARK: Town
-
                 VStack(alignment: .leading, spacing: 6) {
-
                     Text("Town")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
                     Picker("Town", selection: $selectedTown) {
-
                         Text("Select town").tag(SupportedTown?.none)
-
-                        ForEach(SupportedTown.allCases) { town in
-                            Text(town.rawValue).tag(Optional(town))
+                        ForEach(SupportedTown.allCases) {
+                            Text($0.rawValue).tag(Optional($0))
                         }
                     }
                     .pickerStyle(.menu)
                 }
-
-                // MARK: Mobile Toggle
 
                 Toggle("Mobile business (travels to customers)", isOn: $isMobile)
                     .onChange(of: isMobile) { newValue in
@@ -157,22 +135,15 @@ struct BusinessOnboardingView: View {
                         }
                     }
 
-                // MARK: Service Towns
-
                 if isMobile {
-
                     VStack(alignment: .leading, spacing: 8) {
-
-                        Text("Service towns")
-                            .font(.headline)
+                        Text("Service towns").font(.headline)
 
                         ForEach(SupportedTown.allCases) { town in
-
                             MultipleSelectionRow(
                                 title: town.rawValue,
                                 isSelected: selectedServiceTowns.contains(town)
                             ) {
-
                                 if selectedServiceTowns.contains(town) {
                                     selectedServiceTowns.remove(town)
                                 } else {
@@ -183,26 +154,16 @@ struct BusinessOnboardingView: View {
                     }
                 }
 
-                // MARK: Error Message
-
                 if let errorMessage {
-
                     Text(errorMessage)
                         .foregroundColor(.red)
                         .multilineTextAlignment(.center)
                 }
 
-                // MARK: Create Button
-
                 Button {
-
-                    // ✅ Dismiss keyboard
                     UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-
                     createBusiness()
-
                 } label: {
-
                     if isSaving {
                         ProgressView()
                     } else {
@@ -221,10 +182,7 @@ struct BusinessOnboardingView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    // MARK: Address Selection
-
     private func selectAddress(_ result: AddressResult) {
-
         address = "\(result.title), \(result.subtitle)"
         addressSearch.clear()
 
@@ -238,10 +196,7 @@ struct BusinessOnboardingView: View {
         }
     }
 
-    // MARK: Infer Town
-
     private func inferTown(from address: String) {
-
         for town in SupportedTown.allCases {
             if address.localizedCaseInsensitiveContains(town.rawValue) {
                 selectedTown = town
@@ -249,8 +204,6 @@ struct BusinessOnboardingView: View {
             }
         }
     }
-
-    // MARK: Validation
 
     private var formIsValid: Bool {
 
@@ -260,14 +213,10 @@ struct BusinessOnboardingView: View {
         selectedCategory != nil &&
         selectedTown != nil
 
-        if isMobile {
-            return baseValid && !selectedServiceTowns.isEmpty
-        }
-
-        return baseValid
+        return isMobile ? baseValid && !selectedServiceTowns.isEmpty : baseValid
     }
 
-    // MARK: Create Business
+    // MARK: CREATE BUSINESS + STRIPE CONNECT
 
     private func createBusiness() {
 
@@ -276,87 +225,99 @@ struct BusinessOnboardingView: View {
             return
         }
 
-        guard let user = Auth.auth().currentUser else {
-            errorMessage = "Please sign in to continue."
-            return
-        }
-
-        guard !user.isAnonymous else {
-            errorMessage = "Please create an account to create a business."
+        guard let user = Auth.auth().currentUser, !user.isAnonymous else {
+            errorMessage = "Please sign in."
             return
         }
 
         guard user.isEmailVerified else {
             user.sendEmailVerification()
-            errorMessage = "Please verify your email before creating a business."
+            errorMessage = "Verify your email first."
             return
         }
 
-        guard let selectedCategory,
-              let selectedTown else { return }
+        guard let selectedCategory, let selectedTown else { return }
 
         isSaving = true
         errorMessage = nil
 
-        // ✅ Prevent duplicate businesses
-        db.collection("businesses")
-            .whereField("ownerId", isEqualTo: user.uid)
-            .limit(to: 1)
-            .getDocuments { snapshot, _ in
+        let docRef = db.collection("businesses").document()
+        let businessId = docRef.documentID
 
-                if snapshot?.documents.first != nil {
-                    DispatchQueue.main.async {
-                        isSaving = false
-                        errorMessage = "You already have a business."
-                    }
+        let baseTown = selectedTown.rawValue
+        let serviceTownValues = isMobile
+        ? selectedServiceTowns.map { $0.rawValue }
+        : [baseTown]
+
+        let data: [String: Any] = [
+            "businessName": businessName,
+            "address": address,
+            "ownerId": user.uid,
+            "createdAt": FieldValue.serverTimestamp(),
+            "town": baseTown,
+            "category": selectedCategory.rawValue,
+            "isMobile": isMobile,
+            "serviceTowns": serviceTownValues,
+            "latitude": latitude ?? NSNull(),
+            "longitude": longitude ?? NSNull(),
+            "isActive": true,
+            "verified": false
+        ]
+
+        docRef.setData(data) { error in
+
+            if let error {
+                self.errorMessage = error.localizedDescription
+                self.isSaving = false
+                return
+            }
+
+            // STEP 1 — Create Stripe account
+            functions.httpsCallable("createConnectedAccount").call { result, error in
+
+                if let error {
+                    self.errorMessage = error.localizedDescription
+                    self.isSaving = false
                     return
                 }
 
-                let baseTown = selectedTown.rawValue
+                guard let data = result?.data as? [String: Any],
+                      let accountId = data["accountId"] as? String else {
+                    self.errorMessage = "Stripe account failed"
+                    self.isSaving = false
+                    return
+                }
 
-                let serviceTownValues: [String] =
-                isMobile
-                ? selectedServiceTowns.map { $0.rawValue }
-                : [baseTown]
+                // STEP 2 — Save accountId
+                docRef.updateData([
+                    "stripeAccountId": accountId
+                ])
 
-                let data: [String: Any] = [
+                // STEP 3 — Get onboarding link
+                functions.httpsCallable("createAccountLink")
+                    .call(["accountId": accountId]) { result, error in
 
-                    "businessName": businessName.trimmingCharacters(in: .whitespacesAndNewlines),
-                    "address": address,
-                    "ownerId": user.uid,
-                    "createdAt": FieldValue.serverTimestamp(),
-
-                    "town": baseTown,
-                    "category": selectedCategory.rawValue,
-
-                    "isMobile": isMobile,
-                    "serviceTowns": serviceTownValues,
-
-                    "latitude": latitude ?? NSNull(),
-                    "longitude": longitude ?? NSNull(),
-
-                    "isActive": true,
-                    "verified": false,
-
-                    "staffSlotsAllowed": 1,
-                    "staffSlotsPurchased": 0
-                ]
-
-                db.collection("businesses").addDocument(data: data) { error in
-
-                    DispatchQueue.main.async {
-
-                        isSaving = false
+                        self.isSaving = false
 
                         if let error {
-                            errorMessage = error.localizedDescription
-                        } else {
-                            authManager.setRole(.business)
-                            nav.reset()
-                            nav.path.append(.businessHome)
+                            self.errorMessage = error.localizedDescription
+                            return
                         }
+
+                        guard let data = result?.data as? [String: Any],
+                              let urlString = data["url"] as? String,
+                              let url = URL(string: urlString) else {
+                            self.errorMessage = "Onboarding failed"
+                            return
+                        }
+
+                        UIApplication.shared.open(url)
+
+                        self.authManager.setRole(.business)
+                        self.nav.reset()
+                        self.nav.path.append(.businessHome)
                     }
-                }
             }
+        }
     }
 }

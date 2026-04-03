@@ -12,4 +12,12 @@ struct AvailableSlot: Identifiable, Codable {
     let endTime: Date
 
     let isBooked: Bool
+
+    // ✅ SAFE ACCESSOR (THIS IS KEY)
+    var safeId: String {
+        guard let id else {
+            fatalError("❌ Slot missing documentID")
+        }
+        return id
+    }
 }

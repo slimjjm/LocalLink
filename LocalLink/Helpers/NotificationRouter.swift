@@ -4,5 +4,7 @@ final class NotificationRouter: ObservableObject {
 
     static let shared = NotificationRouter()
 
-    @Published var bookingIdToOpen: String? = nil
+    @Published var bookingIdToOpen: String?
+
+    private init() {}
 }

@@ -128,12 +128,11 @@ struct BusinessBookingRowView: View {
 
         isCancelling = true
 
-        bookingService.cancelBookingAsBusiness(
+        bookingService.cancelBooking(
             bookingId: bookingId
         ) { result in
 
             DispatchQueue.main.async {
-
                 isCancelling = false
 
                 if case .success = result {

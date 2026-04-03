@@ -53,7 +53,6 @@ struct BookingSummaryView: View {
             Button {
                 startPaymentFlow()
             } label: {
-                
                 if isSubmitting {
                     ProgressView()
                 } else {
@@ -71,8 +70,32 @@ struct BookingSummaryView: View {
         .onAppear(perform: loadData)
     }
     
-    // MARK: Summary
+    // MARK: Load
     
+    private func loadData() {
+        
+        db.collection("businesses")
+            .document(businessId)
+            .collection("services")
+            .document(serviceId)
+            .getDocument { snap, _ in
+                self.service = try? snap?.data(as: BusinessService.self)
+            }
+        
+        db.collection("businesses")
+            .document(businessId)
+            .collection("staff")
+            .document(staffId)
+            .getDocument { snap, _ in
+                self.staff = try? snap?.data(as: Staff.self)
+            }
+        
+        db.collection("businesses")
+            .document(businessId)
+            .getDocument { snap, _ in
+                self.serviceArea = snap?.data()?["serviceArea"] as? String ?? ""
+            }
+    }
     @ViewBuilder
     private func summaryView(service: BusinessService, staff: Staff) -> some View {
         
@@ -102,93 +125,56 @@ struct BookingSummaryView: View {
                 .fill(Color(.secondarySystemBackground))
         )
     }
-    
+
     private func row(_ label: String, _ value: String) -> some View {
-        
-        HStack(alignment: .top) {
-            
+        HStack {
             Text(label)
-                .foregroundColor(AppColors.charcoal)
-            
             Spacer()
-            
-            Text(value)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.trailing)
+            Text(value).foregroundColor(.secondary)
         }
     }
-    
-    // MARK: Load Data
-    
-    private func loadData() {
-        
-        db.collection("businesses")
-            .document(businessId)
-            .collection("services")
-            .document(serviceId)
-            .getDocument { snap, error in
-                
-                if let error {
-                    print("❌ Failed loading service:", error.localizedDescription)
-                    return
-                }
-                
-                guard let snap else { return }
-                self.service = try? snap.data(as: BusinessService.self)
-            }
-        
-        db.collection("businesses")
-            .document(businessId)
-            .collection("staff")
-            .document(staffId)
-            .getDocument { snap, error in
-                
-                if let error {
-                    print("❌ Failed loading staff:", error.localizedDescription)
-                    return
-                }
-                
-                guard let snap else { return }
-                self.staff = try? snap.data(as: Staff.self)
-            }
-        
-        db.collection("businesses")
-            .document(businessId)
-            .getDocument { snap, error in
-                
-                if let error {
-                    print("❌ Failed loading business:", error.localizedDescription)
-                    return
-                }
-                
-                guard let snap else { return }
-                self.serviceArea = snap.data()?["serviceArea"] as? String ?? ""
-            }
-    }
-    
-    // MARK: Payment Flow
+    // MARK: PAYMENT
     
     private func startPaymentFlow() {
         
+        print("🚀 START PAYMENT FLOW")
+        
         guard let user = Auth.auth().currentUser else {
-            errorMessage = "Please wait… signing in"
+            errorMessage = "Please log in to book"
+            return
+        }
+
+        guard !user.isAnonymous else {
+            errorMessage = "Please log in to book"
             return
         }
         
         isSubmitting = true
         errorMessage = nil
         
+        let payload: [String: Any] = [
+            "businessId": businessId,
+            "staffId": staffId,
+            "serviceId": serviceId,
+            "slotId": slotId,
+            "customerName": user.displayName ?? "Customer",
+            "customerAddress": customerAddress ?? ""
+        ]
+        
+        print("📦 FUNCTION PAYLOAD:", payload)
+        
         functions.httpsCallable("createBookingPaymentIntent")
-            .call([
-                "businessId": businessId,
-                "staffId": staffId,
-                "serviceId": serviceId,
-                "slotId": slotId,
-                "customerName": user.displayName ?? "Customer",
-                "customerAddress": customerAddress ?? ""
-            ]) { result, error in
+            .call(payload) { result, error in
                 
-                if let error {
+                print("📩 FUNCTION CALLBACK TRIGGERED")
+                
+                // 🔴 ERROR
+                if let error = error as NSError? {
+                    print("🔥 FUNCTION ERROR:")
+                    print("Code:", error.code)
+                    print("Message:", error.localizedDescription)
+                    print("UserInfo:", error.userInfo)
+                    
                     DispatchQueue.main.async {
                         self.errorMessage = error.localizedDescription
                         self.isSubmitting = false
@@ -196,91 +182,136 @@ struct BookingSummaryView: View {
                     return
                 }
                 
-                guard
-                    let data = result?.data as? [String: Any],
-                    let clientSecret = data["clientSecret"] as? String,
-                    let bookingId = data["bookingId"] as? String
-                else {
-                    DispatchQueue.main.async {
-                        self.errorMessage = "Payment setup failed"
-                        self.isSubmitting = false
-                    }
+                // 🔍 RAW RESPONSE
+                print("🔥 RAW RESPONSE:", result?.data ?? "nil")
+                
+                guard let raw = result?.data else {
+                    print("❌ NO DATA RETURNED")
+                    self.fail("No response from server")
                     return
                 }
+                
+                var parsed: [String: Any]?
+                
+                // Case 1: direct dictionary
+                if let dict = raw as? [String: Any] {
+                    parsed = dict
+                }
+                
+                // Case 2: wrapped in "result"
+                if let wrapper = raw as? [String: Any],
+                   let inner = wrapper["result"] as? [String: Any] {
+                    parsed = inner
+                }
+                
+                guard let data = parsed else {
+                    print("❌ FAILED TO PARSE RESPONSE")
+                    self.fail("Invalid server response")
+                    return
+                }
+                
+                print("✅ PARSED DATA:", data)
+                
+                guard let clientSecret = data["clientSecret"] as? String else {
+                    print("❌ MISSING clientSecret")
+                    self.fail("Missing clientSecret")
+                    return
+                }
+                
+                guard let bookingId = data["bookingId"] as? String else {
+                    print("❌ MISSING bookingId")
+                    self.fail("Missing bookingId")
+                    return
+                }
+                
+                print("💳 CLIENT SECRET:", clientSecret)
+                print("📄 BOOKING ID:", bookingId)
                 
                 self.bookingId = bookingId
                 
                 var config = PaymentSheet.Configuration()
                 config.merchantDisplayName = "LocalLink"
+                config.returnURL = "locallink://stripe-redirect"
                 
                 DispatchQueue.main.async {
+                    print("🎯 INITIALISING PAYMENT SHEET")
+                    
                     self.paymentSheet = PaymentSheet(
                         paymentIntentClientSecret: clientSecret,
                         configuration: config
                     )
+                    
                     self.presentPaymentSheet()
                 }
             }
     }
     
-    // MARK: Present Stripe
-    
     private func presentPaymentSheet() {
         
-        guard let paymentSheet else { return }
+        print("📲 PRESENTING PAYMENT SHEET")
         
-        guard let vc = UIApplication.shared.topMostViewController() else {
-            self.errorMessage = "Unable to present payment sheet"
-            self.isSubmitting = false
+        guard let paymentSheet else {
+            print("❌ PAYMENT SHEET NIL")
             return
         }
         
-        paymentSheet.present(from: vc) { result in
-            
-            switch result {
+        guard let rootVC = UIApplication.shared.topMostViewController() else {
+            print("❌ ROOT VC NIL")
+            return
+        }
+        
+        paymentSheet.present(from: rootVC) { result in
+            DispatchQueue.main.async {
                 
-            case .completed:
+                print("📊 PAYMENT RESULT:", result)
                 
-                DispatchQueue.main.async {
+                switch result {
+                    
+                case .completed:
+                    print("✅ PAYMENT COMPLETED")
                     self.listenForBookingConfirmation()
-                }
-                
-            case .failed(let error):
-                
-                DispatchQueue.main.async {
-                    self.errorMessage = error.localizedDescription
+                    
+                case .canceled:
+                    print("⚠️ PAYMENT CANCELLED")
                     self.isSubmitting = false
-                }
-                
-            case .canceled:
-                
-                DispatchQueue.main.async {
+                    
+                case .failed(let error):
+                    print("❌ PAYMENT FAILED:", error.localizedDescription)
+                    self.errorMessage = error.localizedDescription
                     self.isSubmitting = false
                 }
             }
         }
     }
     
-    // MARK: Wait for Webhook Confirmation
+    private func fail(_ message: String) {
+        DispatchQueue.main.async {
+            self.errorMessage = message
+            self.isSubmitting = false
+        }
+    }
+    
+    // MARK: Confirmation
     
     private func listenForBookingConfirmation() {
         
         guard let bookingId else { return }
         
+        print("👂 LISTENING FOR BOOKING CONFIRMATION:", bookingId)
+        
         db.collection("bookings")
             .document(bookingId)
-            .addSnapshotListener { snap, error in
+            .addSnapshotListener { snap, _ in
                 
                 guard let data = snap?.data() else { return }
-                
                 let status = data["status"] as? String ?? ""
                 
+                print("📡 BOOKING STATUS:", status)
+                
                 if status == "confirmed" {
-                    
                     DispatchQueue.main.async {
-                        
+                        print("🎉 BOOKING CONFIRMED")
                         self.isSubmitting = false
-                        
                         self.nav.path.append(
                             .bookingSuccess(
                                 businessId: self.businessId,
@@ -293,22 +324,18 @@ struct BookingSummaryView: View {
     }
 }
 
-// MARK: UIKit Helper
+// MARK: VC helper
 
 private extension UIApplication {
     
     func topMostViewController(base: UIViewController? = nil) -> UIViewController? {
         
-        let baseVC: UIViewController? = {
-            
-            if let base { return base }
-            
-            return connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .flatMap { $0.windows }
-                .first(where: { $0.isKeyWindow })?
-                .rootViewController
-        }()
+        let baseVC = base ??
+        connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first(where: { $0.isKeyWindow })?
+            .rootViewController
         
         if let nav = baseVC as? UINavigationController {
             return topMostViewController(base: nav.visibleViewController)

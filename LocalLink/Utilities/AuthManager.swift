@@ -462,8 +462,7 @@ final class AuthManager: ObservableObject {
     
     //
     // MARK: - Magic Link (Send)
-    //
-    
+
     func sendMagicLink(email: String, completion: @escaping (Bool) -> Void) {
         
         isLoading = true
@@ -508,17 +507,19 @@ final class AuthManager: ObservableObject {
             }
         }
     }
-    
-    //
+
+
+    // MARK: - Magic Link (Complete)
+
     func completeMagicLinkSignIn(from url: URL, completion: @escaping (Bool) -> Void) {
         
-        let link = url.absoluteString
+        let rawLink = url.absoluteString
+        let link = rawLink.removingPercentEncoding ?? rawLink
+        
         print("🔥 Incoming magic link:", link)
         
-        let decodedLink = link.removingPercentEncoding ?? link
-
-        guard Auth.auth().isSignIn(withEmailLink: decodedLink) else {
-            print("❌ Invalid email link:", decodedLink)
+        guard Auth.auth().isSignIn(withEmailLink: link) else {
+            print("❌ Invalid email link")
             completion(false)
             return
         }
@@ -532,6 +533,27 @@ final class AuthManager: ObservableObject {
         
         isLoading = true
         errorMessage = nil
+        
+        // MARK: - Finalise user session
+        
+        func finishSignIn(user: User) {
+            
+            print("✅ Signed in:", user.uid)
+            
+            UserDefaults.standard.removeObject(forKey: self.emailForSignInKey)
+            
+            self.ensureUserDocument(user: user)
+            self.allowAnonymousAuth = false
+            self.showEmailVerification = false
+            
+            self.loadUserRole(uid: user.uid) {
+                self.isAuthenticated = true
+                NotificationCenter.default.post(name: .didSelectRole, object: nil)
+                completion(true)
+            }
+        }
+        
+        // MARK: - Standard sign in
         
         func performSignIn() {
             
@@ -556,54 +578,49 @@ final class AuthManager: ObservableObject {
                         return
                     }
                     
-                    print("✅ Signed in:", user.uid)
-                    
-                    UserDefaults.standard.removeObject(forKey: self.emailForSignInKey)
-                    
-                    self.ensureUserDocument(user: user)
-                    self.allowAnonymousAuth = false
-                    self.showEmailVerification = false
-
-                    // 🔥 Load role FIRST, then authenticate
-                    self.loadUserRole(uid: user.uid) {
-                        
-                        self.isAuthenticated = true
-                        
-                        NotificationCenter.default.post(name: .didSelectRole, object: nil)
-                        
-                        completion(true)
-                    }
+                    finishSignIn(user: user)
                 }
             }
         }
         
+        // MARK: - Handle anonymous upgrade
+        
         if let currentUser = Auth.auth().currentUser, currentUser.isAnonymous {
             
-            print("🔥 Deleting anonymous user before upgrade")
+            print("🔥 Linking anonymous user → email account")
             
-            currentUser.delete { [weak self] error in
+            let credential = EmailAuthProvider.credential(withEmail: email, link: link)
+            
+            currentUser.link(with: credential) { [weak self] result, error in
                 
                 guard let self else { return }
                 
                 DispatchQueue.main.async {
                     
                     if let error {
+                        print("⚠️ Link failed, falling back to sign-in:", error.localizedDescription)
+                        
+                        // 🔁 Fallback (VERY IMPORTANT)
+                        performSignIn()
+                        return
+                    }
+                    
+                    guard let user = result?.user else {
+                        self.errorMessage = "Account upgrade failed."
                         self.isLoading = false
-                        self.errorMessage = error.localizedDescription
                         completion(false)
                         return
                     }
                     
-                    performSignIn()
+                    self.isLoading = false
+                    finishSignIn(user: user)
                 }
             }
             
         } else {
             performSignIn()
         }
-    }
-    
-    // MARK: - Google Sign In
+    }    // MARK: - Google Sign In
     
     func signInWithGoogle(completion: @escaping (Bool) -> Void) {
         isLoading = true

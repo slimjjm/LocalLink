@@ -1,6 +1,11 @@
 import FirebaseMessaging
 import FirebaseAuth
 import FirebaseFirestore
+import UserNotifications
+
+// =================================================
+// MARK: - FCM TOKEN HANDLER
+// =================================================
 
 final class MessagingDelegateHandler: NSObject, MessagingDelegate {
 
@@ -8,13 +13,18 @@ final class MessagingDelegateHandler: NSObject, MessagingDelegate {
     private let db = Firestore.firestore()
 
     func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
-
+        
         guard let token = fcmToken else { return }
+        
+        print("🔥 FCM Token received:", token)
 
-        print("🔥 FCM Token:", token)
+        saveTokenIfPossible(token)
+    }
 
+    // 🔥 Call this ALSO after login if needed
+    func saveTokenIfPossible(_ token: String) {
         guard let uid = Auth.auth().currentUser?.uid else {
-            print("❌ No user logged in, skipping FCM save")
+            print("⚠️ No user logged in yet — token will be saved later")
             return
         }
 
@@ -24,14 +34,19 @@ final class MessagingDelegateHandler: NSObject, MessagingDelegate {
                 "fcmTokens": FieldValue.arrayUnion([token])
             ], merge: true)
 
-        print("✅ FCM Token saved:", token)
+        print("✅ FCM Token saved for user:", uid)
     }
 }
+
+// =================================================
+// MARK: - NOTIFICATION HANDLER
+// =================================================
 
 final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
 
     static let shared = NotificationDelegate()
 
+    // ✅ Show notification while app is open
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
@@ -41,7 +56,7 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
         completionHandler([.banner, .sound])
     }
 
-    // 👇 ADD THIS (CRITICAL)
+    // ✅ Handle notification tap
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
@@ -50,7 +65,12 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
 
         let userInfo = response.notification.request.content.userInfo
 
-        if let bookingId = userInfo["bookingId"] as? String {
+        // 🔥 SAFE PARSING (important)
+        let bookingId =
+            userInfo["bookingId"] as? String ??
+            (userInfo["data"] as? [String: Any])?["bookingId"] as? String
+
+        if let bookingId {
             DispatchQueue.main.async {
                 NotificationRouter.shared.bookingIdToOpen = bookingId
             }

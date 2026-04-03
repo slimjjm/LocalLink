@@ -4,14 +4,14 @@ import FirebaseFunctions
 import FirebaseAuth
 
 final class BookingService {
-
+    
     private let db = Firestore.firestore()
     private let functions = Functions.functions(region: "us-central1")
-
+    
     // =================================================
     // CONFIRM BOOKING (PRODUCTION SAFE)
     // =================================================
-
+    
     func confirmBooking(
         businessId: String,
         customerId: String,
@@ -25,7 +25,7 @@ final class BookingService {
         source: String = "app",
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-
+        
         guard let serviceId = service.id else {
             completion(.failure(NSError(
                 domain: "BookingService",
@@ -34,10 +34,10 @@ final class BookingService {
             )))
             return
         }
-
+        
         // ✅ SOURCE OF TRUTH
         let durationMinutes = service.durationMinutes
-
+        
         guard durationMinutes > 0 else {
             completion(.failure(NSError(
                 domain: "BookingService",
@@ -46,40 +46,40 @@ final class BookingService {
             )))
             return
         }
-
+        
         // ✅ ALWAYS CALCULATE END TIME (DO NOT TRUST UI)
         let calculatedEnd = Calendar.current.date(
             byAdding: .minute,
             value: durationMinutes,
             to: startTime
         ) ?? startTime
-
+        
         let bookingDay = date.localMidnight()
         let pricePence = Int((service.price * 100).rounded())
-
+        
         let slotCollection = db
             .collection("businesses")
             .document(businessId)
             .collection("staff")
             .document(staffId)
             .collection("availableSlots")
-
+        
         let bookingRef = db.collection("bookings").document()
         let bookingId = bookingRef.documentID
-
+        
         // =================================================
         // BUILD SLOT SEGMENTS (30 MIN GRID)
         // =================================================
-
+        
         let slotInterval: TimeInterval = 60 * 30
         var slotTimes: [Date] = []
         var cursor = startTime
-
+        
         while cursor < calculatedEnd {
             slotTimes.append(cursor)
             cursor = cursor.addingTimeInterval(slotInterval)
         }
-
+        
         // Safety check
         if slotTimes.isEmpty {
             completion(.failure(NSError(
@@ -89,30 +89,30 @@ final class BookingService {
             )))
             return
         }
-
+        
         // =================================================
         // TRANSACTION
         // =================================================
-
+        
         db.runTransaction({ txn, errorPointer -> Any? in
-
+            
             var slotRefs: [DocumentReference] = []
-
+            
             for slotStart in slotTimes {
-
+                
                 let slotId = SlotID.make(from: slotStart)
                 let ref = slotCollection.document(slotId)
                 slotRefs.append(ref)
-
+                
                 let snap: DocumentSnapshot
-
+                
                 do {
                     snap = try txn.getDocument(ref)
                 } catch {
                     errorPointer?.pointee = error as NSError
                     return nil
                 }
-
+                
                 guard snap.exists else {
                     errorPointer?.pointee = NSError(
                         domain: "BookingService",
@@ -121,7 +121,7 @@ final class BookingService {
                     )
                     return nil
                 }
-
+                
                 if (snap.data()?["isBooked"] as? Bool) == true {
                     errorPointer?.pointee = NSError(
                         domain: "BookingService",
@@ -131,56 +131,56 @@ final class BookingService {
                     return nil
                 }
             }
-
+            
             // =================================================
             // CREATE BOOKING
             // =================================================
-
+            
             txn.setData([
                 "businessId": businessId,
                 "customerId": customerId,
-
+                
                 "serviceId": serviceId,
                 "serviceName": service.name,
                 "serviceDurationMinutes": durationMinutes,
-
+                
                 "price": pricePence,
-
+                
                 "staffId": staffId,
                 "staffName": "",
-
+                
                 "customerName": customerName,
                 "customerAddress": customerAddress,
-
+                
                 "paymentIntentId": paymentIntentId ?? "",
-
+                
                 "bookingDay": Timestamp(date: bookingDay),
                 "date": Timestamp(date: bookingDay),
-
+                
                 "startDate": Timestamp(date: startTime),
                 "endDate": Timestamp(date: calculatedEnd),
-
+                
                 "status": BookingStatus.confirmed.rawValue,
                 "source": source,
-
+                
                 "createdAt": FieldValue.serverTimestamp()
             ], forDocument: bookingRef)
-
+            
             // =================================================
             // LOCK ALL REQUIRED SLOTS
             // =================================================
-
+            
             for ref in slotRefs {
                 txn.setData([
                     "isBooked": true,
                     "bookingId": bookingId
                 ], forDocument: ref, merge: true)
             }
-
+            
             return nil
-
+            
         }) { _, error in
-
+            
             if let error {
                 completion(.failure(error))
             } else {
@@ -188,78 +188,51 @@ final class BookingService {
             }
         }
     }
-
+    
     // =================================================
-    // CUSTOMER CANCEL
+    // CANCEL BOOKING (UNIFIED – CUSTOMER + BUSINESS)
     // =================================================
-
-    func cancelBookingAsCustomer(
-        booking: Booking,
-        completion: @escaping (Result<Void, Error>) -> Void
-    ) {
-
-        guard let bookingId = booking.id else {
-            completion(.failure(NSError(
-                domain: "BookingService",
-                code: 0,
-                userInfo: [NSLocalizedDescriptionKey: "Missing booking id."]
-            )))
-            return
-        }
-
-        functions.httpsCallable("refundBooking")
-            .call(["bookingId": bookingId]) { _, error in
-                if let error {
-                    completion(.failure(error))
-                } else {
-                    completion(.success(()))
-                }
-            }
-    }
-
-    // =================================================
-    // BUSINESS CANCEL
-    // =================================================
-
-    func cancelBookingAsBusiness(
+    
+    func cancelBooking(
         bookingId: String,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-
-        db.collection("bookings")
-            .document(bookingId)
-            .updateData([
-                "status": BookingStatus.cancelled_by_business.rawValue,
-                "cancelledAt": FieldValue.serverTimestamp()
-            ]) { error in
-
+        
+        functions.httpsCallable("cancelBooking").call([
+            "bookingId": bookingId
+        ]) { result, error in
+            
+            DispatchQueue.main.async {
+                
                 if let error {
                     completion(.failure(error))
-                } else {
-                    completion(.success(()))
+                    return
                 }
+                
+                completion(.success(()))
             }
+        }
     }
-
     // =================================================
     // MARK COMPLETE
     // =================================================
-
     func markBookingAsCompleted(
         bookingId: String,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-
+        
         db.collection("bookings")
             .document(bookingId)
             .updateData([
-                "status": BookingStatus.completed.rawValue
+                "status": "completed"
             ]) { error in
-
-                if let error {
-                    completion(.failure(error))
-                } else {
-                    completion(.success(()))
+                
+                DispatchQueue.main.async {
+                    if let error {
+                        completion(.failure(error))
+                    } else {
+                        completion(.success(()))
+                    }
                 }
             }
     }

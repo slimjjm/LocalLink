@@ -3,7 +3,7 @@ import Firebase
 import FirebaseMessaging
 import UserNotifications
 import GoogleSignIn
-import Stripe
+import StripePaymentSheet
 
 class AppDelegate: NSObject, UIApplicationDelegate {
 
@@ -12,36 +12,56 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions:
         [UIApplication.LaunchOptionsKey : Any]? = nil
     ) -> Bool {
-        if let notification = launchOptions?[.remoteNotification] as? [AnyHashable: Any],
-           let bookingId = notification["bookingId"] as? String {
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                NotificationRouter.shared.bookingIdToOpen = bookingId
-            }
-        }
         FirebaseApp.configure()
 
-        // ✅ Ask permission ONCE (correct place)
+        // =================================================
+        // MARK: - Notifications Setup
+        // =================================================
+
         UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
 
         UNUserNotificationCenter.current().requestAuthorization(
             options: [.alert, .badge, .sound]
         ) { granted, error in
-            print("Notifications granted: \(granted)")
+            print("🔔 Notifications granted:", granted)
+            if let error {
+                print("❌ Notification permission error:", error)
+            }
         }
 
         application.registerForRemoteNotifications()
 
-        // ✅ FCM setup
+        // =================================================
+        // MARK: - FCM Setup
+        // =================================================
+
         Messaging.messaging().delegate = MessagingDelegateHandler.shared
 
-        // ✅ Stripe
-        StripeAPI.defaultPublishableKey = "pk_live_..."
+        // =================================================
+        // MARK: - Handle Launch From Notification
+        // =================================================
+
+        if let notification = launchOptions?[.remoteNotification] as? [AnyHashable: Any] {
+            
+            let bookingId =
+                notification["bookingId"] as? String ??
+                (notification["data"] as? [String: Any])?["bookingId"] as? String
+
+            if let bookingId {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    NotificationRouter.shared.bookingIdToOpen = bookingId
+                }
+            }
+        }
 
         return true
     }
 
-    // ✅ REQUIRED: APNs → Firebase
+    // =================================================
+    // MARK: - APNs → Firebase
+    // =================================================
+
     func application(
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
@@ -49,7 +69,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         Messaging.messaging().apnsToken = deviceToken
     }
 
-    // ✅ Optional (good for debugging)
     func application(
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
@@ -57,7 +76,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         print("❌ Failed to register for notifications:", error)
     }
 
-    // ✅ Google Sign-In
+    // =================================================
+    // MARK: - Google Sign-In
+    // =================================================
+
     func application(
         _ app: UIApplication,
         open url: URL,

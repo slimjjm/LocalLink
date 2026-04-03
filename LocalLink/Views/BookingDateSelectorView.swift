@@ -30,10 +30,11 @@ struct BookingDateSelectorView: View {
                     businessId: businessId,
                     service: service,
                     date: selectedDate,
-                    customerAddress: customerAddress   // 👈 pass forward
+                    customerAddress: customerAddress
                 )
             } label: {
                 Text("Next")
+                    .frame(maxWidth: .infinity, minHeight: 50) // 👈 THIS is the key line
             }
             .primaryButton()
 
