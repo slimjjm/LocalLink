@@ -14,42 +14,68 @@ final class BookingChatRepository {
         senderRole: String,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-
-        guard let senderId = Auth.auth().currentUser?.uid else {
-            completion(.failure(NSError(domain: "Auth", code: 0)))
+        guard let user = Auth.auth().currentUser else {
+            completion(.failure(NSError(
+                domain: "Auth",
+                code: 401,
+                userInfo: [NSLocalizedDescriptionKey: "User not authenticated"]
+            )))
             return
         }
 
+        let messageRef = db.collection("bookings")
+            .document(bookingId)
+            .collection("messages")
+            .document()
+
         let bookingRef = db.collection("bookings").document(bookingId)
-        let messagesRef = bookingRef.collection("messages").document()
+        let businessRef = db.collection("businesses").document(businessId)
 
-        let batch = db.batch()
-
-        // 1️⃣ Create message
-        let messageData: [String: Any] = [
-            "senderId": senderId,
-            "senderRole": senderRole,
-            "text": text,
-            "createdAt": FieldValue.serverTimestamp()
-        ]
-
-        batch.setData(messageData, forDocument: messagesRef)
-
-        // 2️⃣ Increment correct unread counter
-        if senderRole == "customer" {
-            batch.updateData([
-                "unreadForBusiness": FieldValue.increment(Int64(1))
-            ], forDocument: bookingRef)
-        } else {
-            batch.updateData([
-                "unreadForCustomer": FieldValue.increment(Int64(1))
-            ], forDocument: bookingRef)
-        }
-
-        batch.commit { error in
+        // 🔥 Fetch business name FIRST (so senderName is always correct)
+        businessRef.getDocument { snapshot, error in
+            
             if let error {
                 completion(.failure(error))
-            } else {
+                return
+            }
+
+            let businessName = snapshot?.data()?["name"] as? String ?? "Business"
+
+            // ✅ Determine sender name
+            let senderName: String = {
+                if senderRole == "customer" {
+                    return user.displayName ?? "Customer"
+                } else {
+                    return businessName
+                }
+            }()
+
+            let data: [String: Any] = [
+                "senderId": user.uid,
+                "senderRole": senderRole,
+                "senderName": senderName,
+                "text": text,
+                "createdAt": FieldValue.serverTimestamp()
+            ]
+
+            // 🔥 Write message
+            messageRef.setData(data) { error in
+                if let error {
+                    completion(.failure(error))
+                    return
+                }
+
+                // 🔥 Update unread counters safely
+                if senderRole == "customer" {
+                    bookingRef.updateData([
+                        "unreadForBusiness": FieldValue.increment(Int64(1))
+                    ])
+                } else {
+                    bookingRef.updateData([
+                        "unreadForCustomer": FieldValue.increment(Int64(1))
+                    ])
+                }
+
                 completion(.success(()))
             }
         }

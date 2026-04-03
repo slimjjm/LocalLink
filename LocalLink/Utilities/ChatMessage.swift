@@ -7,9 +7,11 @@ struct ChatMessage: Identifiable {
     let id: String
     let text: String
     let senderId: String
+    let senderName: String
+    let createdAt: Date?
     
     var isFromCurrentUser: Bool {
-        return senderId == Auth.auth().currentUser?.uid
+        senderId == Auth.auth().currentUser?.uid
     }
     
     init?(document: QueryDocumentSnapshot) {
@@ -23,5 +25,7 @@ struct ChatMessage: Identifiable {
         self.id = document.documentID
         self.text = text
         self.senderId = senderId
+        self.senderName = data["senderName"] as? String ?? "User"
+        self.createdAt = (data["createdAt"] as? Timestamp)?.dateValue()
     }
 }

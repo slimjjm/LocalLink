@@ -180,6 +180,14 @@ private extension BookingChatView {
 
             VStack(alignment: .leading, spacing: 6) {
 
+                // 👇 NAME (only show for other person)
+                if !isMe {
+                    Text(message.senderName ?? "User")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                // 👇 MESSAGE BUBBLE
                 Text(message.text)
                     .padding()
                     .background(isMe ? AppColors.primary : Color(.secondarySystemBackground))
@@ -187,6 +195,7 @@ private extension BookingChatView {
                     .cornerRadius(12)
                     .frame(maxWidth: 260, alignment: isMe ? .trailing : .leading)
 
+                // 👇 TIME
                 HStack {
                     if isMe { Spacer() }
 
@@ -197,6 +206,7 @@ private extension BookingChatView {
                     if !isMe { Spacer() }
                 }
 
+                // 👇 STATUS (your message only)
                 if isMe {
                     HStack {
                         Spacer()
@@ -242,7 +252,7 @@ private extension BookingChatView {
         listener = db.collection("bookings")
             .document(bookingId)
             .collection("messages")
-            .order(by: "createdAt", descending: false)
+            .order(by: "createdAt")
             .addSnapshotListener { snapshot, _ in
 
                 guard let docs = snapshot?.documents else { return }
@@ -298,12 +308,12 @@ private extension BookingChatView {
 
         let tempMessage = BookingMessage(
             id: UUID().uuidString,
+            senderName: user.displayName ?? "You",
             senderId: uid,
             senderRole: currentUserRole,
             text: trimmed,
             createdAt: Date()
         )
-
         messages.append(tempMessage)
         newMessage = ""
 

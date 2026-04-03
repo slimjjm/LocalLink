@@ -3,8 +3,9 @@ import FirebaseFirestoreSwift
 
 struct BookingMessage: Identifiable, Codable {
 
-    @DocumentID var id: String?
-
+    let id: String
+    
+    let senderName: String?
     let senderId: String
     let senderRole: String
     let text: String

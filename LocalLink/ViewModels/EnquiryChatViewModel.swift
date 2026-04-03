@@ -87,7 +87,7 @@ final class EnquiryChatViewModel: ObservableObject {
             "senderId": user.uid,
             "senderRole": senderRole,
             "text": text,
-            "createdAt": Timestamp()
+            "createdAt": FieldValue.serverTimestamp()
         ]
         
         messageRef.setData(data)
@@ -96,7 +96,7 @@ final class EnquiryChatViewModel: ObservableObject {
         
         var update: [String: Any] = [
             "lastMessage": text,
-            "lastMessageAt": Timestamp()
+            "lastMessageAt": FieldValue.serverTimestamp()
         ]
         
         if senderRole == "customer" {

@@ -4,14 +4,12 @@ import FirebaseFirestore
 
 struct EnquiryChatView: View {
     
-    // ✅ Supports BOTH entry paths
     private let business: Business?
     private let businessId: String
     
     @StateObject private var viewModel = EnquiryChatViewModel()
     @State private var messageText = ""
     @AppStorage("userRole") private var currentRole: String = "customer"
-    // MARK: - INITS
     
     init(business: Business) {
         self.business = business
@@ -22,8 +20,6 @@ struct EnquiryChatView: View {
         self.business = nil
         self.businessId = businessId
     }
-    
-    // MARK: - BODY
     
     var body: some View {
         
@@ -71,7 +67,6 @@ private extension EnquiryChatView {
                     proxy.scrollTo(last.id, anchor: .bottom)
                 }
                 
-                // ✅ Mark as read when messages appear
                 viewModel.markAsRead()
             }
         }
@@ -90,17 +85,28 @@ private extension EnquiryChatView {
                 Spacer()
             }
             
-            Text(message.text)
-                .padding(12)
-                .background(
-                    message.isFromCurrentUser
-                    ? AppColors.primary
-                    : Color(.secondarySystemBackground)
-                )
-                .foregroundColor(
-                    message.isFromCurrentUser ? .white : .primary
-                )
-                .cornerRadius(14)
+            VStack(alignment: .leading, spacing: 4) {
+                
+                // 👇 NAME
+                if !message.isFromCurrentUser {
+                    Text(message.senderName)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                // 👇 MESSAGE
+                Text(message.text)
+                    .padding(12)
+                    .background(
+                        message.isFromCurrentUser
+                        ? AppColors.primary
+                        : Color(.secondarySystemBackground)
+                    )
+                    .foregroundColor(
+                        message.isFromCurrentUser ? .white : .primary
+                    )
+                    .cornerRadius(14)
+            }
             
             if !message.isFromCurrentUser {
                 Spacer()
@@ -111,7 +117,7 @@ private extension EnquiryChatView {
     }
 }
 
-// MARK: - INPUT BAR
+// MARK: - INPUT
 
 private extension EnquiryChatView {
     
