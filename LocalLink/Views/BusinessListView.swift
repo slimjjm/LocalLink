@@ -93,7 +93,7 @@ struct BusinessListView: View {
         .navigationTitle("Select a business")
         .navigationBarTitleDisplayMode(.inline)
 
-        .onAppear {
+        .task {
             viewModel.loadBusinesses(
                 town: town,
                 category: category

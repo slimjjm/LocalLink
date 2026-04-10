@@ -1,14 +1,21 @@
 import Foundation
 
 struct Conversation: Identifiable {
+    
     let id: String
-    let bookingId: String
+    
+    let businessId: String
+    let customerId: String
+    
     let title: String
     let lastMessage: String
     let timestamp: Date
     let unreadCount: Int
     
+    // MARK: - Time Formatting
+    
     var timeText: String {
+        
         let seconds = Int(Date().timeIntervalSince(timestamp))
         
         if seconds < 60 {

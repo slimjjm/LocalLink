@@ -5,7 +5,6 @@ import FirebaseFirestore
 
 struct BusinessHomeView: View {
     
-    
     @EnvironmentObject var authManager: AuthManager
     @EnvironmentObject private var nav: NavigationState
     
@@ -13,88 +12,45 @@ struct BusinessHomeView: View {
     @StateObject private var bookingsVM = BusinessBookingsViewModel()
     @StateObject private var unreadVM = ChatUnreadViewModel()
     
-    // MARK: Billing State
-    
     @State private var restrictionMode: Bool = false
     @State private var stripeStatus: String = "free"
     @State private var pastDueSince: Timestamp?
     
     @State private var stripeConnected: Bool = false
-    
-    @State private var showRecoverySuccess: Bool = false
-    @State private var previousRestrictionMode: Bool = false
-    @State private var previousStripeStatus: String = "free"
-    
-    // Countdown
-    @State private var graceTimeRemaining: TimeInterval?
-    private let graceDuration: TimeInterval = 7 * 24 * 60 * 60
-    
+    @State private var maxStaff: Int = 1
     @State private var entitlementsListener: ListenerRegistration?
     
     private let functions = Functions.functions(region: "us-central1")
-    
-    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-    
-    // MARK: Body
     
     var body: some View {
         
         Group {
             
             if resolver.isLoading {
-                
                 ProgressView("Loading business…")
                 
             } else if !resolver.errorMessage.isEmpty {
-                
                 errorState
                 
             } else if let businessId = resolver.selectedBusinessId {
                 
                 content(businessId: businessId)
                     .onAppear {
+                        guard entitlementsListener == nil else { return }
                         
                         loadBusinessData(businessId: businessId)
                         startStripeListener(businessId: businessId)
-                        
                         startEntitlementsListener(businessId: businessId)
                         
-                        unreadVM.startListening(
-                            role: "business",
-                            businessId: businessId
-                        )
+                        unreadVM.startListening(role: "business", businessId: businessId)
                     }
                     .onDisappear {
-                        
                         entitlementsListener?.remove()
-                        entitlementsListener = nil
-                        
                         unreadVM.stopListening()
                     }
-                
-            } else {
-                
-                ProgressView("Loading business…")
             }
         }
-        .navigationTitle("Business")
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(true)
-        
-        // ✅ TIMER
-        .onReceive(timer) { _ in
-            updateCountdown()
-        }
-        
-        // ✅ STRIPE RETURN (THIS IS THE FIX)
-        .onReceive(NotificationCenter.default.publisher(for: .stripeReturn)) { _ in
-            print("🔄 Stripe return detected")
-            
-            if let businessId = resolver.selectedBusinessId {
-                loadBusinessData(businessId: businessId)
-            }
-        }
-        
+        .navigationBarBackButtonHidden(true) // 🔥 THIS FIXES YOUR ISSUE
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Change role") {
@@ -103,164 +59,14 @@ struct BusinessHomeView: View {
                 }
             }
         }
-        
         .onAppear {
             if resolver.businesses.isEmpty {
                 resolver.load()
             }
         }
     }
-    // MARK: Stripe Connection
     
-    private func startStripeListener(businessId: String) {
-        
-        Firestore.firestore()
-            .collection("businesses")
-            .document(businessId)
-            .addSnapshotListener { snapshot, error in
-                
-                guard let data = snapshot?.data() else { return }
-                
-                DispatchQueue.main.async {
-                    
-                    stripeConnected = data["stripeConnected"] as? Bool ?? false
-                }
-            }
-    }
-    
-    // MARK: Entitlements Listener
-    
-    private func startEntitlementsListener(businessId: String) {
-        
-        let db = Firestore.firestore()
-        
-        entitlementsListener?.remove()
-        entitlementsListener = nil
-        
-        entitlementsListener = db.collection("businesses")
-            .document(businessId)
-            .collection("entitlements")
-            .document("default")
-            .addSnapshotListener { snapshot, error in
-                
-                guard error == nil else { return }
-                guard let data = snapshot?.data() else { return }
-                
-                let newRestriction = data["restrictionMode"] as? Bool ?? false
-                let newStripeStatus = data["stripeStatus"] as? String ?? "free"
-                let newPastDue = data["pastDueSince"] as? Timestamp
-                
-                DispatchQueue.main.async {
-                    
-                    if previousRestrictionMode == true && newRestriction == false {
-                        triggerRecoverySuccess()
-                    }
-                    
-                    if previousStripeStatus == "past_due" && newStripeStatus == "active" {
-                        triggerRecoverySuccess()
-                    }
-                    
-                    restrictionMode = newRestriction
-                    stripeStatus = newStripeStatus
-                    pastDueSince = newPastDue
-                    
-                    calculateCountdown()
-                    
-                    previousRestrictionMode = newRestriction
-                    previousStripeStatus = newStripeStatus
-                }
-            }
-    }
-    
-    private func triggerRecoverySuccess() {
-        
-        showRecoverySuccess = true
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            
-            withAnimation(.easeInOut) {
-                showRecoverySuccess = false
-            }
-        }
-    }
-    
-    // MARK: Countdown
-    
-    private func calculateCountdown() {
-        
-        guard stripeStatus == "past_due",
-              restrictionMode == false,
-              let pastDueSince else {
-            
-            graceTimeRemaining = nil
-            return
-        }
-        
-        let elapsed = Date().timeIntervalSince(pastDueSince.dateValue())
-        
-        graceTimeRemaining = max(0, graceDuration - elapsed)
-    }
-    
-    private func updateCountdown() {
-        
-        guard stripeStatus == "past_due",
-              restrictionMode == false,
-              let remaining = graceTimeRemaining,
-              remaining > 0 else { return }
-        
-        graceTimeRemaining = remaining - 1
-    }
-    
-    private func formattedCountdown() -> String {
-        
-        guard let remaining = graceTimeRemaining else {
-            return "Please update your payment method to avoid restriction."
-        }
-        
-        let total = max(0, Int(remaining))
-        
-        let days = total / 86400
-        let hours = (total % 86400) / 3600
-        let minutes = (total % 3600) / 60
-        let seconds = total % 60
-        
-        return "Update payment to avoid restriction • \(days)d \(hours)h \(minutes)m \(seconds)s remaining"
-    }
-    
-    // MARK: Load Data
-    
-    private func loadBusinessData(businessId: String) {
-        
-        bookingsVM.loadBookings(for: businessId)
-        bookingsVM.loadStaff(for: businessId)
-    }
-    
-    // MARK: Error
-    
-    private var errorState: some View {
-        
-        VStack(spacing: 14) {
-            
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 36))
-                .foregroundColor(AppColors.error)
-            
-            Text("Business not ready")
-                .font(.headline)
-            
-            Text(resolver.errorMessage)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-            
-            Button("Retry") {
-                resolver.load()
-            }
-        }
-        .padding()
-    }
-    
-    // MARK: Main Content
+    // MARK: CONTENT
     
     private func content(businessId: String) -> some View {
         
@@ -272,45 +78,13 @@ struct BusinessHomeView: View {
                 
                 stripeConnectTile
                 
-                if unreadVM.totalUnread > 0 {
-                    
-                    NavigationLink {
-                        
-                        BusinessBookingsView(businessId: businessId)
-                        
-                    } label: {
-                        
-                        HStack {
-                            
-                            Image(systemName: "message.fill")
-                            
-                            Text("You have \(unreadVM.totalUnread) unread message\(unreadVM.totalUnread > 1 ? "s" : "")")
-                            
-                            Spacer()
-                            
-                            Image(systemName: "chevron.right")
-                        }
-                        .padding()
-                        .background(AppColors.primary.opacity(0.15))
-                        .cornerRadius(12)
-                    }
-                }
-                
-                BusinessDayScrollerView(
-                    businessId: businessId,
-                    viewModel: bookingsVM
-                )
-                
-                BusinessEarningsView(
-                    businessId: businessId,
-                    viewModel: bookingsVM
-                )
-                
+                BusinessDayScrollerView(businessId: businessId, viewModel: bookingsVM)
+                BusinessEarningsView(businessId: businessId, viewModel: bookingsVM)
                 BusinessCapacityTileView(viewModel: bookingsVM)
                 
-                staffUsageTile(businessId: businessId)
+                quickActions(businessId: businessId)
                 
-                menuGrid(businessId: businessId)
+                managementSection(businessId: businessId)
                 
                 switchRoleButton
             }
@@ -319,298 +93,234 @@ struct BusinessHomeView: View {
         .background(AppColors.background)
     }
     
-    // MARK: Stripe Tile
+    // MARK: HEADER
     
-    private var stripeConnectTile: some View {
-        
-        VStack(alignment: .leading, spacing: 10) {
-            
-            Text("Payments")
-                .font(.headline)
-            
-            if stripeConnected {
-                
-                Label("Stripe connected", systemImage: "checkmark.circle.fill")
-                    .foregroundColor(AppColors.success)
-                
-            } else {
-                
-                VStack(alignment: .leading, spacing: 10) {
-                    
-                    Label(
-                        "Connect Stripe to accept bookings",
-                        systemImage: "exclamationmark.triangle.fill"
-                    )
-                    .foregroundColor(AppColors.error)
-                    
-                    NavigationLink {
-                        
-                        StripeConnectView()
-                        
-                    } label: {
-                        
-                        Text("Connect Stripe")
-                            .primaryButton()
-                    }
-                }
-            }
-        }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(.secondarySystemBackground))
-        )
+    private var businessName: String {
+        resolver.selectedBusiness?.businessName ?? "Your Business"
     }
-    
-    // MARK: Header
     
     private var headerSection: some View {
         
-        VStack(alignment: .leading) {
-            
-            Text("Business Dashboard")
-                .font(.largeTitle.bold())
-                .foregroundColor(AppColors.charcoal)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-    
-    // MARK: Staff
-    
-    private func staffUsageTile(businessId: String) -> some View {
-        
-        NavigationLink {
-            
-            BusinessStaffListView(businessId: businessId)
-            
-        } label: {
+        VStack(alignment: .leading, spacing: 12) {
             
             HStack {
-                
-                Image(systemName: "person.2.fill")
-                    .foregroundColor(AppColors.primary)
-                
-                VStack(alignment: .leading) {
+                VStack(alignment: .leading, spacing: 4) {
                     
-                    Text("Staff")
+                    Text("Welcome back")
                         .font(.caption)
+                        .foregroundColor(.secondary)
                     
-                    Text("Manage staff & availability")
-                        .font(.headline)
+                    Text(businessName)
+                        .font(.system(size: 28, weight: .bold))
                 }
                 
                 Spacer()
                 
-                Image(systemName: "chevron.right")
+                ZStack {
+                    Circle()
+                        .fill(AppColors.primary.opacity(0.12))
+                        .frame(width: 44, height: 44)
+                    
+                    Image(systemName: "building.2.fill")
+                        .foregroundColor(AppColors.primary)
+                }
             }
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Color(.secondarySystemBackground))
-            )
+            
+            Rectangle()
+                .fill(Color.gray.opacity(0.15))
+                .frame(height: 1)
         }
     }
     
-    // MARK: Menu Grid
+    // MARK: QUICK ACTIONS
     
-    private func menuGrid(businessId: String) -> some View {
+    private func quickActions(businessId: String) -> some View {
         
-        LazyVGrid(
-            columns: [
-                GridItem(.flexible()),
-                GridItem(.flexible())
-            ],
-            spacing: 20
-        ) {
-            // 🔥 INBOX ENTRY (REPLACES OLD UNREAD SECTION)
-
-            NavigationLink {
-                
-                BusinessInboxView(businessId: businessId)
-                
-            } label: {
-                
-                HStack {
-                    
-                    Image(systemName: "bubble.left.and.bubble.right.fill")
-                    
-                    VStack(alignment: .leading, spacing: 2) {
-                        
-                        Text("Inbox")
-                            .font(.headline)
-                        
-                        Text("View enquiries & messages")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Spacer()
-                    
-                    if unreadVM.totalUnread > 0 {
-                        Text("\(unreadVM.totalUnread)")
-                            .font(.caption.bold())
-                            .padding(8)
-                            .background(AppColors.error)
-                            .foregroundColor(.white)
-                            .clipShape(Capsule())
-                    }
-                    
-                    Image(systemName: "chevron.right")
-                }
-                .padding()
-                .background(AppColors.primary.opacity(0.12))
-                .cornerRadius(14)
-            }
-            // SERVICES
+        VStack(spacing: 12) {
             
-            NavigationLink {
-                BusinessServiceListView(businessId: businessId)
-            } label: {
-                menuTile(title: "Services", icon: "scissors")
-            }
-            
-            // BOOKINGS
+            sectionHeader("Quick actions")
             
             NavigationLink {
                 BusinessBookingsView(businessId: businessId)
             } label: {
-                menuTile(title: "Bookings", icon: "book.closed")
+                actionRow(
+                    title: "Bookings",
+                    subtitle: "View upcoming appointments",
+                    icon: "calendar"
+                )
             }
-            
-            // ADD BOOKING
             
             NavigationLink {
-                
-                if !bookingsVM.staff.isEmpty {
-                    
-                    StaffSelectionView(
-                        businessId: businessId,
-                        staff: bookingsVM.staff,
-                        mode: .manualBooking
-                    )
-                    
-                } else {
-                    missingStaffView
-                }
-                
+                BusinessInboxView(businessId: businessId)
             } label: {
-                menuTile(title: "Add booking", icon: "calendar.badge.plus")
+                actionRow(
+                    title: "Messages",
+                    subtitle: "Customer enquiries",
+                    icon: "bubble.left.and.bubble.right.fill"
+                )
             }
+        }
+    }
+    
+    // MARK: MANAGEMENT
+    
+    private func managementSection(businessId: String) -> some View {
+        
+        VStack(spacing: 12) {
             
-            // BLOCK TIME
+            sectionHeader("Manage")
             
             NavigationLink {
-                
-                if !bookingsVM.staff.isEmpty {
-                    
-                    StaffSelectionView(
-                        businessId: businessId,
-                        staff: bookingsVM.staff,
-                        mode: .blockTime
-                    )
-                    
-                } else {
-                    missingStaffView
-                }
-                
+                BusinessServiceListView(businessId: businessId)
             } label: {
-                menuTile(title: "Block time", icon: "calendar.badge.minus")
+                actionRow(
+                    title: "Services",
+                    subtitle: "Pricing & durations",
+                    icon: "scissors"
+                )
             }
-            
-            // CALENDAR
             
             NavigationLink {
-                
-                if !bookingsVM.staff.isEmpty {
-                    
-                    BusinessBookingCalendarView(
-                        businessId: businessId,
-                        staff: bookingsVM.staff
-                    )
-                    
-                } else {
-                    missingStaffView
-                }
-                
+                BusinessStaffListView(businessId: businessId)
             } label: {
-                menuTile(title: "Calendar", icon: "calendar.circle")
+                actionRow(
+                    title: "Team",
+                    subtitle: "Staff & availability",
+                    icon: "person.2.fill"
+                )
             }
             
+            NavigationLink {
+                BusinessBookingCalendarView(
+                    businessId: businessId,
+                    staff: bookingsVM.staff
+                )
+            } label: {
+                actionRow(
+                    title: "Calendar",
+                    subtitle: "Manage schedule",
+                    icon: "calendar.badge.clock"
+                )
+            }
             
-            // PROFILE
+            NavigationLink {
+                BusinessSubscriptionResolverView()
+            } label: {
+                actionRow(
+                    title: "Subscription",
+                    subtitle: "Plan & billing",
+                    icon: "creditcard.fill"
+                )
+            }
             
             NavigationLink {
                 BusinessProfileContainerView(businessId: businessId)
             } label: {
-                menuTile(title: "Profile", icon: "building.2")
+                actionRow(
+                    title: "Business profile",
+                    subtitle: "Public page",
+                    icon: "person.crop.square"
+                )
             }
-            
-            // BILLING
-            
-            Button {
-                openBillingPortal()
-            } label: {
-                menuTile(title: "Billing", icon: "creditcard")
-            }
-            
-            // SETTINGS
             
             NavigationLink {
                 SettingsView()
             } label: {
-                menuTile(title: "Settings", icon: "gearshape")
+                actionRow(
+                    title: "Settings",
+                    subtitle: "App preferences",
+                    icon: "gearshape"
+                )
             }
         }
     }
-    private var missingStaffView: some View {
-        
-        VStack {
-            Text("Please add a staff member first")
-                .foregroundColor(.secondary)
-                .padding()
-        }
-    }
-    // MARK: Billing Portal
     
-    private func openBillingPortal() {
+    // MARK: ACTION ROW
+    
+    private func actionRow(title: String, subtitle: String, icon: String) -> some View {
         
-        functions.httpsCallable("createStripePortalLink").call { result, error in
+        HStack(spacing: 14) {
             
-            if let error {
-                print("Portal error:", error.localizedDescription)
-                return
-            }
-            
-            if let dict = result?.data as? [String: Any],
-               let urlString = dict["url"] as? String,
-               let url = URL(string: urlString) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(AppColors.primary.opacity(0.12))
+                    .frame(width: 40, height: 40)
                 
-                UIApplication.shared.open(url)
+                Image(systemName: icon)
+                    .foregroundColor(AppColors.primary)
             }
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+            
+            Image(systemName: "chevron.right")
+                .foregroundColor(.gray.opacity(0.5))
         }
+        .padding()
+        .background(premiumCard)
     }
     
-    // MARK: Switch Role
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.headline)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    
+    // MARK: STRIPE
+    
+    private var stripeConnectTile: some View {
+        
+        VStack(alignment: .leading, spacing: 12) {
+            
+            HStack {
+                Image(systemName: "creditcard.fill")
+                    .foregroundColor(AppColors.primary)
+                
+                Text("Payments")
+                    .font(.headline)
+            }
+            
+            if stripeConnected {
+                Text("Payments active")
+            } else {
+                Button("Finish setup") {
+                    print("Stripe onboarding tapped")
+                }
+                .padding()
+                .frame(maxWidth: .infinity)
+                .background(AppColors.primary)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+            }
+        }
+        .padding()
+        .background(premiumCard)
+    }
+    
+    // MARK: SWITCH ROLE
     
     private var switchRoleButton: some View {
         
         Button {
-            
+            UserDefaults.standard.set("customer", forKey: "userRole")
             nav.reset()
-            
+            nav.path.append(.customerHome)
         } label: {
             
             HStack {
-                
-                Image(systemName: "arrow.uturn.backward.circle.fill")
-                    .foregroundColor(AppColors.primary)
+                Image(systemName: "person.fill")
                 
                 VStack(alignment: .leading) {
-                    
-                    Text("Back to welcome")
-                        .font(.headline)
-                    
-                    Text("Switch between customer and business mode")
+                    Text("Switch to customer")
+                    Text("Browse services")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -618,38 +328,65 @@ struct BusinessHomeView: View {
                 Spacer()
             }
             .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Color(.secondarySystemBackground))
-            )
+            .background(premiumCard)
         }
     }
     
-    // MARK: Tile
+    // MARK: CARD
     
-    private func menuTile(title: String, icon: String) -> some View {
-        
-        HStack {
-            
-            VStack(alignment: .leading, spacing: 8) {
-                
-                Image(systemName: icon)
-                    .font(.title2)
-                    .foregroundColor(AppColors.primary)
-                
-                Text(title)
-                    .font(.headline)
+    private var premiumCard: some View {
+        RoundedRectangle(cornerRadius: 20)
+            .fill(Color.white)
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(Color.black.opacity(0.04), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.04), radius: 12, y: 6)
+    }
+    
+    // MARK: FIREBASE
+    
+    private func startStripeListener(businessId: String) {
+        Firestore.firestore()
+            .collection("businesses")
+            .document(businessId)
+            .addSnapshotListener { snapshot, _ in
+                stripeConnected = snapshot?.data()?["stripeConnected"] as? Bool ?? false
             }
-            
-            Spacer()
-            
-            Image(systemName: "chevron.right")
+    }
+    
+    private func startEntitlementsListener(businessId: String) {
+        
+        entitlementsListener?.remove()
+        
+        entitlementsListener = Firestore.firestore()
+            .collection("businesses")
+            .document(businessId)
+            .collection("entitlements")
+            .document("default")
+            .addSnapshotListener { snapshot, _ in
+                
+                guard let data = snapshot?.data() else { return }
+                
+                let free = data["freeStaffSlots"] as? Int ?? 1
+                let extra = data["extraStaffSlots"] as? Int ?? 0
+                
+                maxStaff = free + extra
+                restrictionMode = data["restrictionMode"] as? Bool ?? false
+                stripeStatus = data["stripeStatus"] as? String ?? "free"
+                pastDueSince = data["pastDueSince"] as? Timestamp
+            }
+    }
+    
+    private func loadBusinessData(businessId: String) {
+        bookingsVM.loadBookings(for: businessId)
+        bookingsVM.loadStaff(for: businessId)
+    }
+    
+    private var errorState: some View {
+        VStack {
+            Text("Error")
+            Text(resolver.errorMessage)
         }
-        .padding()
-        .frame(maxWidth: .infinity, minHeight: 100)
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(Color(.secondarySystemBackground))
-        )
     }
 }

@@ -19,7 +19,14 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // MARK: - Notifications Setup
         // =================================================
 
-        UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
+        UNUserNotificationCenter.current().delegate = NotificationManager.shared
+        
+        Messaging.messaging().token { token, error in
+            if let token = token {
+                print("🔥 FCM Token (launch fetch):", token)
+                MessagingDelegateHandler.shared.saveTokenIfPossible(token)
+            }
+        }
 
         UNUserNotificationCenter.current().requestAuthorization(
             options: [.alert, .badge, .sound]

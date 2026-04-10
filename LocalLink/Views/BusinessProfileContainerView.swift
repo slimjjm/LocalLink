@@ -20,8 +20,7 @@ struct BusinessProfileContainerView: View {
                 
                 BusinessProfileView(
                     business: business,
-                    services: viewModel.services,
-                    nextSlot: viewModel.nextAvailableSlot
+                    nextSlot: nil
                 )
                 
             } else if !viewModel.errorMessage.isEmpty {

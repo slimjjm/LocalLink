@@ -20,10 +20,6 @@ struct CustomerHomeView: View {
 
                 inboxCard
 
-                if unreadVM.totalUnread > 0 {
-                    unreadBanner
-                }
-
                 secondaryActions
 
                 switchRoleSection
@@ -117,7 +113,7 @@ private extension CustomerHomeView {
 
     var inboxCard: some View {
         NavigationLink {
-            InboxView()
+            InboxView(businessId: "")
         } label: {
 
             HStack(spacing: 14) {
@@ -149,29 +145,7 @@ private extension CustomerHomeView {
     }
 }
 
-// MARK: - UNREAD BANNER
 
-private extension CustomerHomeView {
-
-    var unreadBanner: some View {
-        NavigationLink {
-            CustomerBookingsView()
-        } label: {
-
-            HStack {
-                Image(systemName: "message.fill")
-                Text("\(unreadVM.totalUnread) unread messages")
-                Spacer()
-                chevron
-            }
-            .font(.footnote.weight(.semibold))
-            .padding()
-            .background(AppColors.primary.opacity(0.12))
-            .foregroundColor(AppColors.primary)
-            .cornerRadius(14)
-        }
-    }
-}
 
 // MARK: - SECONDARY
 

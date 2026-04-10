@@ -315,7 +315,6 @@ struct BusinessOnboardingView: View {
 
                         self.authManager.setRole(.business)
                         self.nav.reset()
-                        self.nav.path.append(.businessHome)
                     }
             }
         }

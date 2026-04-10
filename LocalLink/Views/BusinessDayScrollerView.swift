@@ -5,12 +5,13 @@ struct BusinessDayScrollerView: View {
     let businessId: String
     @ObservedObject var viewModel: BusinessBookingsViewModel
 
-    @State private var referenceToday = Date().localMidnight()
-    @State private var selectedDay: Date = Date().localMidnight()
+    private var selectedDay: Date {
+        viewModel.selectedDate
+    }
 
     private var dayLabel: String {
 
-        if Calendar.current.isDate(selectedDay, inSameDayAs: referenceToday) {
+        if Calendar.current.isDateInToday(selectedDay) {
             return "Today"
         }
 
@@ -19,36 +20,13 @@ struct BusinessDayScrollerView: View {
         return f.string(from: selectedDay)
     }
 
-    private var selectedDayBookings: [Booking] {
-
-        viewModel.upcoming
-            .filter {
-                let day = $0.bookingDay ?? $0.startDate.localMidnight()
-                return day == selectedDay
-            }
-            .sorted { $0.startDate < $1.startDate }
-    }
-
-    private var bookingSummary: String {
-
-        let count = selectedDayBookings.count
-
-        if count == 0 {
-            return "No bookings today"
-        }
-
-        if count == 1 {
-            return "1 booking today"
-        }
-
-        return "\(count) bookings today"
+    private var bookings: [Booking] {
+        viewModel.bookings(for: selectedDay)
     }
 
     var body: some View {
 
         VStack(alignment: .leading, spacing: 14) {
-
-            // Header
 
             HStack {
 
@@ -56,7 +34,6 @@ struct BusinessDayScrollerView: View {
                     moveDay(-1)
                 } label: {
                     Image(systemName: "chevron.left")
-                        .font(.headline)
                 }
 
                 Spacer()
@@ -70,34 +47,23 @@ struct BusinessDayScrollerView: View {
                     moveDay(1)
                 } label: {
                     Image(systemName: "chevron.right")
-                        .font(.headline)
                 }
             }
 
-            // Summary line
-
-            if !viewModel.isLoading {
-                Text(bookingSummary)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-
-            // Content
-
             if viewModel.isLoading {
 
-                ProgressView("Loading…")
-                    .frame(maxWidth: .infinity)
+                ProgressView()
 
-            } else if selectedDayBookings.isEmpty {
+            } else if bookings.isEmpty {
 
-                EmptyView()
+                Text("No bookings")
+                    .foregroundColor(.secondary)
 
             } else {
 
                 VStack(spacing: 10) {
 
-                    ForEach(selectedDayBookings) { booking in
+                    ForEach(bookings) { booking in
 
                         BusinessBookingRowView(
                             booking: booking,
@@ -114,18 +80,12 @@ struct BusinessDayScrollerView: View {
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color.white)
         )
-        .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
-        .onAppear {
-
-            referenceToday = Date().localMidnight()
-            selectedDay = referenceToday
-        }
     }
 
     private func moveDay(_ delta: Int) {
 
         if let newDay = Calendar.current.date(byAdding: .day, value: delta, to: selectedDay) {
-            selectedDay = newDay.localMidnight()
+            viewModel.selectedDate = newDay.localMidnight()
         }
     }
 }

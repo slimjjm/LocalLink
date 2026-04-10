@@ -56,6 +56,17 @@ struct Booking: Identifiable, Codable {
     
     // MARK: - UI helpers
     
+    var isInPast: Bool {
+        endDate < Date()
+    }
+
+    var isUpcoming: Bool {
+        startDate > Date()
+    }
+
+    var isOngoing: Bool {
+        startDate <= Date() && endDate >= Date()
+    }
     var safeServiceName: String {
         serviceName ?? "Service"
     }

@@ -35,8 +35,10 @@ struct BusinessInboxView: View {
                 
                 NavigationLink {
                     
-                    EnquiryChatView(businessId: chat.businessId)
-                    
+                    EnquiryChatView(
+                        businessId: businessId,
+                        customerId: chat.customerId   // 👈 REQUIRED
+                    )
                 } label: {
                     
                     HStack {
@@ -74,3 +76,4 @@ struct BusinessInboxView: View {
         }
     }
 }
+

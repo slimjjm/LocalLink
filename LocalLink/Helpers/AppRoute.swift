@@ -41,7 +41,5 @@ enum AppRoute: Hashable {
         role: String
     )
     
-    case bookingChat(
-        bookingId: String
-    )
+    case bookingChat(businessId: String, customerId: String)
 }

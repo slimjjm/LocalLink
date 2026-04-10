@@ -32,8 +32,6 @@ struct BusinessSubscriptionView: View {
         return min(Double(staffCount) / Double(totalSeats), 1.0)
     }
     
-    private var isPaid: Bool { extraSeats > 0 }
-    
     // MARK: - Body
     
     var body: some View {
@@ -41,29 +39,127 @@ struct BusinessSubscriptionView: View {
             VStack(spacing: 20) {
                 
                 if isLoading {
-                    loadingCard
+                    ProgressView("Loading subscription...")
                 } else {
-                    heroCard
-                    usageCard
                     
-                    if restrictionMode {
-                        restrictionBanner
+                    // MARK: - HERO
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Staff Capacity")
+                            .font(.title2.bold())
+                        
+                        Text("Take more bookings with more staff.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        
+                        HStack {
+                            metric("Included", freeSeats)
+                            metric("Paid", extraSeats)
+                            metric("Total", totalSeats)
+                        }
                     }
+                    .padding()
+                    .background(cardBackground)
                     
-                    if unlockVM.isInGracePeriod {
-                        graceBanner
+                    // MARK: - USAGE
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        
+                        HStack {
+                            Text("Usage")
+                            Spacer()
+                            Text("\(staffCount)/\(totalSeats)")
+                        }
+                        
+                        ProgressView(value: usageProgress)
+                            .tint(usageProgress >= 1 ? .red : .orange)
+                        
+                        Text("\(activeSeats) active • \(inactiveSeats) over limit")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
+                    .padding()
+                    .background(cardBackground)
                     
-                    purchaseCard
+                    // MARK: - PURCHASE
                     
-                    if let errorMessage {
-                        infoMessage(errorMessage, color: AppColors.error)
+                    VStack(alignment: .leading, spacing: 16) {
+                        
+                        Text("Upgrade")
+                            .font(.headline)
+                        
+                        ForEach(StaffUnlockViewModel.SeatPlan.allCases) { plan in
+                            
+                            Button {
+                                Task {
+                                    let result = await unlockVM.purchase(plan: plan)
+                                    if result == .failed {
+                                        errorMessage = unlockVM.errorMessage
+                                    }
+                                }
+                            } label: {
+                                HStack {
+                                    
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        
+                                        Text(plan.title)
+                                            .font(.body.weight(.semibold))
+                                        
+                                        Text(plan.subtitle)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                        
+                                        if let badge = plan.badge {
+                                            Text(badge)
+                                                .font(.caption2.bold())
+                                                .foregroundColor(.orange)
+                                        }
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    if let product = unlockVM.product(for: plan) {
+                                        Text(product.displayPrice)
+                                            .font(.body.bold())
+                                    }
+                                }
+                                .padding()
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .fill(Color.white)
+                                        .shadow(color: .black.opacity(0.05), radius: 6)
+                                )
+                            }
+                            .disabled(unlockVM.isWorking || unlockVM.isActive(plan: plan))
+                            .opacity(unlockVM.isActive(plan: plan) ? 0.5 : 1)
+                        }
+                        
+                        Divider()
+                        
+                        Button("Restore Purchases") {
+                            Task { _ = await unlockVM.restorePurchases() }
+                        }
+                        
+                        Button("Manage Subscription") {
+                            if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundColor(.red)
+                        }
                     }
+                    .padding()
+                    .background(cardBackground)
                 }
             }
-            .padding(16)
+            .padding()
         }
-        .background(AppColors.background.ignoresSafeArea())
         .navigationTitle("Subscription")
         .onAppear {
             startListening()
@@ -76,171 +172,6 @@ struct BusinessSubscriptionView: View {
         }
     }
     
-    // MARK: - Cards
-    
-    private var loadingCard: some View {
-        ProgressView("Loading subscription...")
-            .frame(maxWidth: .infinity)
-            .padding()
-            .background(cardBackground)
-    }
-    
-    private var heroCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            
-            Text("Staff Seats")
-                .font(.title2.bold())
-            
-            Text("Scale your business by unlocking additional staff.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            
-            HStack {
-                metric("Included", freeSeats)
-                metric("Paid", extraSeats)
-                metric("Total", totalSeats)
-            }
-        }
-        .padding()
-        .background(cardBackground)
-    }
-    
-    private var usageCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            
-            HStack {
-                Text("Usage")
-                Spacer()
-                Text("\(staffCount)/\(totalSeats)")
-            }
-            
-            ProgressView(value: usageProgress)
-                .tint(usageProgress >= 1 ? AppColors.error : AppColors.primary)
-            
-            Text("\(activeSeats) active • \(inactiveSeats) over limit")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .padding()
-        .background(cardBackground)
-    }
-    
-    private var restrictionBanner: some View {
-        Text("Billing issue — account restricted")
-            .foregroundColor(AppColors.error)
-            .padding()
-    }
-    
-    private var graceBanner: some View {
-        Text("Payment issue — subscription in grace period")
-            .font(.footnote.bold())
-            .foregroundColor(AppColors.error)
-            .padding(.horizontal)
-    }
-    
-    // MARK: - PURCHASE CARD (FIXED FOR APPLE)
-    
-    private var purchaseCard: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            
-            // MARK: - Header
-            
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Upgrade")
-                    .font(.headline)
-                
-                Text("Unlock additional staff slots")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-            
-            // MARK: - Plans
-            
-            ForEach(StaffUnlockViewModel.SeatPlan.allCases) { plan in
-                
-                Button {
-                    Task {
-                        let result = await unlockVM.purchase(plan: plan)
-                        if result == .failed {
-                            errorMessage = unlockVM.errorMessage
-                        }
-                    }
-                } label: {
-                    HStack {
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            
-                            Text(plan.title)
-                                .font(.body.weight(.semibold))
-                            
-                            Text("Monthly subscription")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        Spacer()
-                        
-                        if let product = unlockVM.product(for: plan) {
-                            Text(product.displayPrice)
-                                .font(.body.weight(.bold))
-                        }
-                    }
-                    .padding()
-                    .background(
-                        RoundedRectangle(cornerRadius: 14)
-                            .fill(Color.white)
-                            .shadow(color: .black.opacity(0.05), radius: 6)
-                    )
-                }
-                .disabled(unlockVM.isWorking || unlockVM.isActive(plan: plan))
-                .opacity(unlockVM.isActive(plan: plan) ? 0.5 : 1)
-            }
-            
-            Divider()
-            
-            // MARK: - LEGAL (APPLE REQUIRED)
-            
-            VStack(alignment: .leading, spacing: 10) {
-                
-                Text("Subscriptions automatically renew unless cancelled at least 24 hours before the end of the current period. You can manage and cancel your subscription in your Apple account settings.")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-                
-                Text("Payment will be charged to your Apple ID account at confirmation of purchase.")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-                
-                HStack {
-                    Link("Terms of Use", destination: URL(string: "https://locallinkapp.co.uk/terms")!)
-                    Spacer()
-                    Link("Privacy Policy", destination: URL(string: "https://locallinkapp.co.uk/privacy")!)
-                }
-                .font(.footnote.weight(.semibold))
-                .foregroundColor(AppColors.primary)
-            }
-            
-            // MARK: - ACTIONS
-            
-            VStack(alignment: .leading, spacing: 12) {
-                
-                Button("Restore Purchases") {
-                    Task { _ = await unlockVM.restorePurchases() }
-                }
-                .foregroundColor(AppColors.primary)
-                
-                Button("Manage Subscription") {
-                    if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
-                        UIApplication.shared.open(url)
-                    }
-                }
-                .font(.footnote)
-                .foregroundColor(.secondary)
-            }
-        }
-        .padding()
-        .background(cardBackground)
-    }
-    
     // MARK: - Components
     
     private func metric(_ title: String, _ value: Int) -> some View {
@@ -249,13 +180,6 @@ struct BusinessSubscriptionView: View {
             Text("\(value)").bold()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-    
-    private func infoMessage(_ message: String, color: Color) -> some View {
-        Text(message)
-            .font(.footnote)
-            .foregroundColor(color)
-            .padding()
     }
     
     private var cardBackground: some View {
@@ -267,6 +191,7 @@ struct BusinessSubscriptionView: View {
     // MARK: - Firestore
     
     private func startListening() {
+        
         entitlementListener?.remove()
         
         entitlementListener = db.collection("businesses")

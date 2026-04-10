@@ -5,6 +5,7 @@ import FirebaseFirestore
 import FirebaseCore
 import GoogleSignIn
 import AuthenticationServices
+import FirebaseMessaging
 
 @MainActor
 final class AuthManager: ObservableObject {
@@ -171,7 +172,62 @@ final class AuthManager: ObservableObject {
             }
         }
     }
-    
+    // MARK: - Google Sign In
+
+    func signInWithGoogle(completion: @escaping (Bool) -> Void) {
+        
+        isLoading = true
+        errorMessage = nil
+        showEmailVerification = false
+        
+        guard let clientID = FirebaseApp.app()?.options.clientID else {
+            isLoading = false
+            errorMessage = "Missing Firebase client ID."
+            completion(false)
+            return
+        }
+        
+        guard let rootVC = topViewController() else {
+            isLoading = false
+            errorMessage = "Unable to access the login window."
+            completion(false)
+            return
+        }
+        
+        let config = GIDConfiguration(clientID: clientID)
+        GIDSignIn.sharedInstance.configuration = config
+        
+        GIDSignIn.sharedInstance.signIn(withPresenting: rootVC) { [weak self] result, error in
+            
+            guard let self = self else { return }
+            
+            if let error = error {
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    self.errorMessage = error.localizedDescription
+                    completion(false)
+                }
+                return
+            }
+            
+            guard let user = result?.user,
+                  let idToken = user.idToken?.tokenString else {
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    self.errorMessage = "Missing Google account details."
+                    completion(false)
+                }
+                return
+            }
+            
+            let credential = GoogleAuthProvider.credential(
+                withIDToken: idToken,
+                accessToken: user.accessToken.tokenString
+            )
+            
+            self.authenticateWithFirebase(credential: credential, completion: completion)
+        }
+    }
     // MARK: - Anonymous
     
     func signInAnonymously(completion: @escaping (Bool) -> Void) {
@@ -246,6 +302,9 @@ final class AuthManager: ObservableObject {
                     self.ensureUserDocument(user: user)
                     self.isAuthenticated = true
                     self.loadUserRole(uid: user.uid)
+                    
+                    // 🔥 CRITICAL FIX
+                    MessagingDelegateHandler.shared.flushPendingTokenIfNeeded()
                     
                     if self.isPasswordProviderUser(user), !user.isEmailVerified {
                         self.showEmailVerification = true
@@ -534,9 +593,7 @@ final class AuthManager: ObservableObject {
         isLoading = true
         errorMessage = nil
         
-        // MARK: - Finalise user session
-        
-        func finishSignIn(user: User) {
+        func finishSignIn(user: User, completion: @escaping (Bool) -> Void) {
             
             print("✅ Signed in:", user.uid)
             
@@ -546,26 +603,37 @@ final class AuthManager: ObservableObject {
             self.allowAnonymousAuth = false
             self.showEmailVerification = false
             
-            self.loadUserRole(uid: user.uid) {
-                self.isAuthenticated = true
-                NotificationCenter.default.post(name: .didSelectRole, object: nil)
-                completion(true)
+            self.loadUserRole(uid: user.uid) { [weak self] in
+                
+                guard let self = self else { return }
+                
+                DispatchQueue.main.async {
+                    self.isAuthenticated = true
+                    
+                    // 🔥 CRITICAL FIX
+                    MessagingDelegateHandler.shared.flushPendingTokenIfNeeded()
+                    
+                    NotificationCenter.default.post(
+                        name: .didSelectRole,
+                        object: nil
+                    )
+                    
+                    completion(true)
+                }
             }
         }
-        
-        // MARK: - Standard sign in
         
         func performSignIn() {
             
             Auth.auth().signIn(withEmail: email, link: link) { [weak self] result, error in
                 
-                guard let self else { return }
+                guard let self = self else { return }
                 
                 DispatchQueue.main.async {
                     
                     self.isLoading = false
                     
-                    if let error {
+                    if let error = error {
                         print("❌ Sign-in error:", error.localizedDescription)
                         self.errorMessage = self.messageForAuthError(error as NSError)
                         completion(false)
@@ -578,29 +646,31 @@ final class AuthManager: ObservableObject {
                         return
                     }
                     
-                    finishSignIn(user: user)
+                    finishSignIn(user: user) { success in
+                        completion(success)
+                    }
                 }
             }
         }
         
-        // MARK: - Handle anonymous upgrade
-        
-        if let currentUser = Auth.auth().currentUser, currentUser.isAnonymous {
+        if let currentUser = Auth.auth().currentUser,
+           currentUser.isAnonymous {
             
             print("🔥 Linking anonymous user → email account")
             
-            let credential = EmailAuthProvider.credential(withEmail: email, link: link)
+            let credential = EmailAuthProvider.credential(
+                withEmail: email,
+                link: link
+            )
             
             currentUser.link(with: credential) { [weak self] result, error in
                 
-                guard let self else { return }
+                guard let self = self else { return }
                 
                 DispatchQueue.main.async {
                     
-                    if let error {
-                        print("⚠️ Link failed, falling back to sign-in:", error.localizedDescription)
-                        
-                        // 🔁 Fallback (VERY IMPORTANT)
+                    if let error = error {
+                        print("⚠️ Link failed, falling back:", error.localizedDescription)
                         performSignIn()
                         return
                     }
@@ -613,69 +683,19 @@ final class AuthManager: ObservableObject {
                     }
                     
                     self.isLoading = false
-                    finishSignIn(user: user)
+                    
+                    finishSignIn(user: user) { success in
+                        completion(success)
+                    }
                 }
             }
             
         } else {
             performSignIn()
         }
-    }    // MARK: - Google Sign In
-    
-    func signInWithGoogle(completion: @escaping (Bool) -> Void) {
-        isLoading = true
-        errorMessage = nil
-        showEmailVerification = false
-        
-        guard let clientID = FirebaseApp.app()?.options.clientID else {
-            isLoading = false
-            errorMessage = "Missing Firebase client ID."
-            completion(false)
-            return
-        }
-        
-        guard let rootVC = topViewController() else {
-            isLoading = false
-            errorMessage = "Unable to access the login window."
-            completion(false)
-            return
-        }
-        
-        let config = GIDConfiguration(clientID: clientID)
-        GIDSignIn.sharedInstance.configuration = config
-        
-        GIDSignIn.sharedInstance.signIn(withPresenting: rootVC) { [weak self] result, error in
-            guard let self else { return }
-            
-            if let error {
-                DispatchQueue.main.async {
-                    self.isLoading = false
-                    self.errorMessage = error.localizedDescription
-                    completion(false)
-                }
-                return
-            }
-            
-            guard let user = result?.user,
-                  let idToken = user.idToken?.tokenString else {
-                DispatchQueue.main.async {
-                    self.isLoading = false
-                    self.errorMessage = "Missing Google account details."
-                    completion(false)
-                }
-                return
-            }
-            
-            let credential = GoogleAuthProvider.credential(
-                withIDToken: idToken,
-                accessToken: user.accessToken.tokenString
-            )
-            
-            self.authenticateWithFirebase(credential: credential, completion: completion)
-        }
     }
     
-    // MARK: - Apple Sign In
+        // MARK: - Apple Sign In
     
     func signInWithApple(idTokenString: String, rawNonce: String, completion: @escaping (Bool) -> Void) {
         isLoading = true
@@ -744,38 +764,43 @@ final class AuthManager: ObservableObject {
         }
     }
     
-    private func signInDirectly(with credential: AuthCredential, completion: @escaping (Bool) -> Void) {
-        Auth.auth().signIn(with: credential) { [weak self] result, error in
-            guard let self else { return }
+private func signInDirectly(with credential: AuthCredential, completion: @escaping (Bool) -> Void) {
+    Auth.auth().signIn(with: credential) { [weak self] result, error in
+        guard let self else { return }
+        
+        DispatchQueue.main.async {
+            self.isLoading = false
             
-            DispatchQueue.main.async {
-                self.isLoading = false
-                
-                if let error {
-                    self.errorMessage = self.messageForAuthError(error as NSError)
-                    completion(false)
-                    return
-                }
-                
-                guard let user = result?.user else {
-                    self.errorMessage = "Authentication failed."
-                    completion(false)
-                    return
-                }
-                
-                self.ensureUserDocument(user: user)
-                self.allowAnonymousAuth = false
-                self.showEmailVerification = false
-                self.isAuthenticated = true
-                self.loadUserRole(uid: user.uid)
-                completion(true)
+            if let error {
+                self.errorMessage = self.messageForAuthError(error as NSError)
+                completion(false)
+                return
             }
+            
+            guard let user = result?.user else {
+                self.errorMessage = "Authentication failed."
+                completion(false)
+                return
+            }
+            
+            self.ensureUserDocument(user: user)
+            self.allowAnonymousAuth = false
+            self.showEmailVerification = false
+            self.isAuthenticated = true
+            self.loadUserRole(uid: user.uid)
+            
+            // 🔥 CRITICAL FIX
+            MessagingDelegateHandler.shared.flushPendingTokenIfNeeded()
+            
+            completion(true)
         }
     }
+}
     
     // MARK: - Firestore User
     
     func ensureUserDocument(user: User) {
+        
         let ref = db.collection("users").document(user.uid)
         
         ref.getDocument { [weak self] snapshot, error in
@@ -786,26 +811,43 @@ final class AuthManager: ObservableObject {
                 return
             }
             
+            // 🔥 PRIORITY NAME SOURCES
+            let displayName = user.displayName
+            
+            let emailName = user.email?
+                .components(separatedBy: "@")
+                .first
+            
+            let finalName =
+                displayName ??
+                emailName ??
+                "Customer"
+            
             let baseData: [String: Any] = [
                 "email": user.email ?? "",
+                "name": finalName, // ✅ THIS IS THE FIX
                 "role": "customer",
                 "createdAt": FieldValue.serverTimestamp()
             ]
             
             if snapshot?.exists == false {
+                
                 ref.setData(baseData) { error in
                     if let error {
                         print("❌ Error creating user document:", error.localizedDescription)
                     } else {
-                        print("✅ Created Firestore user profile")
+                        print("✅ Created Firestore user profile WITH NAME")
                     }
                 }
+                
             } else {
+                
                 ref.setData([
-                    "email": user.email ?? ""
+                    "email": user.email ?? "",
+                    "name": finalName // ✅ ALSO UPDATE EXISTING USERS
                 ], merge: true) { error in
                     if let error {
-                        print("❌ Error syncing user email:", error.localizedDescription)
+                        print("❌ Error syncing user data:", error.localizedDescription)
                     }
                 }
             }
@@ -840,14 +882,18 @@ final class AuthManager: ObservableObject {
             print("❌ Logout failed:", error.localizedDescription)
         }
         
+        // 🔥 Reset local state
         isAuthenticated = false
         role = nil
         isRoleLoading = false
         showEmailVerification = false
         errorMessage = nil
         storedRole = nil
+        
+        // 🚨 THIS IS THE MISSING PIECE
+        NotificationCenter.default.post(name: .didLogout, object: nil)
     }
-    
+   
     // MARK: - Firestore Sync
     
     private func syncRoleToFirestore(_ role: UserRole) {
@@ -924,3 +970,7 @@ final class AuthManager: ObservableObject {
         }
     }
 }
+extension Notification.Name {
+    static let didLogout = Notification.Name("didLogout")
+}
+

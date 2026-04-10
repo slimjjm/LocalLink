@@ -13,7 +13,7 @@ final class StaffUnlockViewModel: ObservableObject {
         case failed
     }
     
-    // MARK: - Plans
+    // MARK: - Plans (UPDATED 🔥)
     
     enum SeatPlan: String, CaseIterable, Identifiable {
         case one = "locallink.staff.1"
@@ -30,18 +30,28 @@ final class StaffUnlockViewModel: ObservableObject {
             }
         }
         
+        // 🔥 NEW — CLEAN CAPACITY LABEL
         var title: String {
+            "+\(extraSeats) staff"
+        }
+        
+        // 🔥 NEW — SUPPORTING TEXT
+        var subtitle: String {
             switch self {
-            case .one: return "Unlock 1 team member"
-            case .three: return "Unlock 3 team members"
-            case .five: return "Unlock 5 team members"
+            case .one:
+                return "Perfect for growing solo"
+            case .three:
+                return "Take on more bookings"
+            case .five:
+                return "Maximise daily capacity"
             }
         }
         
+        // 🔥 KEEP BADGES (GOOD FOR CONVERSION)
         var badge: String? {
             switch self {
             case .one: return nil
-            case .three: return "Most popular"
+            case .three: return "Grow your capacity"
             case .five: return "Best value"
             }
         }
@@ -58,9 +68,9 @@ final class StaffUnlockViewModel: ObservableObject {
     @Published var activeProductID: String?
     @Published var activeExtraSeats: Int = 0
     
-    @Published var isInGracePeriod = false   // ✅ NEW
+    @Published var isInGracePeriod = false
     @Published var renewalDate: Date?
-    @Published var pendingDowngradePlan: SeatPlan?
+    
     // MARK: - Private
     
     private let functions = Functions.functions(region: "us-central1")
@@ -73,6 +83,7 @@ final class StaffUnlockViewModel: ObservableObject {
         guard let activeProductID else { return nil }
         return SeatPlan(rawValue: activeProductID)
     }
+    
     // MARK: - Setup
     
     func configure(businessId: String) async {
@@ -119,6 +130,7 @@ final class StaffUnlockViewModel: ObservableObject {
             return .failed
         }
         
+        // 🔥 BLOCK DOWNGRADE / SAME PLAN
         if let currentPlan = currentPlan,
            plan.extraSeats <= currentPlan.extraSeats {
             errorMessage = "You already have this plan or higher."
@@ -170,31 +182,7 @@ final class StaffUnlockViewModel: ObservableObject {
     }
     
     // MARK: - Restore
-    private func latestValidTransaction() async -> Transaction? {
-        
-        var best: Transaction?
-        var bestSeats = 0
-        
-        for await result in Transaction.currentEntitlements {
-            
-            guard let transaction = try? checkVerified(result) else { continue }
-            guard let plan = SeatPlan(rawValue: transaction.productID) else { continue }
-            
-            if transaction.revocationDate != nil { continue }
-            
-            if let expiry = transaction.expirationDate,
-               expiry < Date() {
-                continue
-            }
-            
-            if plan.extraSeats > bestSeats {
-                bestSeats = plan.extraSeats
-                best = transaction
-            }
-        }
-        
-        return best
-    }
+    
     func restorePurchases() async -> Bool {
         isWorking = true
         errorMessage = nil
@@ -222,6 +210,32 @@ final class StaffUnlockViewModel: ObservableObject {
         }
     }
     
+    private func latestValidTransaction() async -> Transaction? {
+        
+        var best: Transaction?
+        var bestSeats = 0
+        
+        for await result in Transaction.currentEntitlements {
+            
+            guard let transaction = try? checkVerified(result) else { continue }
+            guard let plan = SeatPlan(rawValue: transaction.productID) else { continue }
+            
+            if transaction.revocationDate != nil { continue }
+            
+            if let expiry = transaction.expirationDate,
+               expiry < Date() {
+                continue
+            }
+            
+            if plan.extraSeats > bestSeats {
+                bestSeats = plan.extraSeats
+                best = transaction
+            }
+        }
+        
+        return best
+    }
+    
     func refreshEntitlementsFromApple() async {
         
         var bestPlan: SeatPlan?
@@ -233,37 +247,30 @@ final class StaffUnlockViewModel: ObservableObject {
             guard let transaction = try? checkVerified(result) else { continue }
             guard let plan = SeatPlan(rawValue: transaction.productID) else { continue }
             
-            // Ignore revoked
-            if transaction.revocationDate != nil {
-                continue
-            }
+            if transaction.revocationDate != nil { continue }
             
             if let expiry = transaction.expirationDate {
                 
                 if expiry > Date() {
                     
-                    // Active subscription
                     if bestPlan == nil || plan.extraSeats > (bestPlan?.extraSeats ?? 0) {
                         bestPlan = plan
                         bestExpiry = expiry
                     }
                     
                 } else {
-                    // ⚠️ Possible grace (best effort)
                     detectedGrace = true
                 }
             }
         }
         
-        // ❌ REMOVE downgrade detection (not reliable with StoreKit)
-        
         activeProductID = bestPlan?.rawValue
         activeExtraSeats = bestPlan?.extraSeats ?? 0
         
         renewalDate = bestExpiry
-        pendingDowngradePlan = nil   // 👈 important
         isInGracePeriod = detectedGrace
     }
+    
     // MARK: - Listener
     
     private func startTransactionListenerIfNeeded() {

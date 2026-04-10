@@ -38,6 +38,8 @@ struct WelcomeView: View {
                     .frame(height: 50)
                     .cornerRadius(12)
                     .disabled(authManager.isLoading)
+                    
+                    
 
                     // MARK: - Google Sign In
                     Button {

@@ -16,13 +16,26 @@ final class BusinessInboxViewModel: ObservableObject {
         listener = db.collection("businessChats")
             .whereField("businessId", isEqualTo: businessId)
             .order(by: "lastMessageAt", descending: true)
-            .addSnapshotListener { [weak self] snapshot, _ in
+            .addSnapshotListener { [weak self] snapshot, error in
                 
-                guard let self else { return }
+                if let error {
+                    print("❌ Business inbox error:", error.localizedDescription)
+                    return
+                }
                 
-                self.chats = snapshot?.documents.compactMap {
-                    BusinessChat(document: $0)
-                } ?? []
+                guard let docs = snapshot?.documents else { return }
+                
+                let chats: [BusinessChat] = docs.compactMap { doc in
+                    BusinessChat(document: doc, role: "business")
+                }
+                DispatchQueue.main.async {
+                    self?.chats = chats
+                }
             }
+    }
+    
+    func stop() {
+        listener?.remove()
+        listener = nil
     }
 }

@@ -7,4 +7,5 @@ struct AppColors {
     static let background = Color(hex: "#F9F6F2")
     static let success = Color(hex: "#2E7D5B")
     static let error = Color(hex: "#C64545")
+    static let businessBlue = Color(hex: "#2F80ED")
 }

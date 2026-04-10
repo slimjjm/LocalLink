@@ -390,7 +390,6 @@ struct DayDetailList: View {
     let onSlotTapped: (AvailableSlot) -> Void
 
     var body: some View {
-
         ScrollView {
             VStack(spacing: 20) {
 
@@ -403,7 +402,9 @@ struct DayDetailList: View {
                                 .foregroundColor(AppColors.error)
 
                             VStack(alignment: .leading) {
-                                Text(block.title).font(.subheadline.bold())
+                                Text(block.title)
+                                    .font(.subheadline.bold())
+
                                 Text("\(block.startDate.formatted(date: .omitted, time: .shortened)) - \(block.endDate.formatted(date: .omitted, time: .shortened))")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
@@ -421,12 +422,20 @@ struct DayDetailList: View {
                     sectionHeader("Bookings")
 
                     ForEach(bookings) { booking in
-                        HStack {
+                        HStack(spacing: 12) {
+
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(AppColors.success)
 
-                            Text(booking.safeServiceName)
-                                .font(.subheadline.bold())
+                            VStack(alignment: .leading, spacing: 4) {
+
+                                Text(booking.safeServiceName)
+                                    .font(.subheadline.bold())
+
+                                Text("\(booking.startDate.formatted(date: .omitted, time: .shortened)) - \(booking.endDate.formatted(date: .omitted, time: .shortened))")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
 
                             Spacer()
                         }
@@ -460,6 +469,8 @@ struct DayDetailList: View {
             .padding()
         }
     }
+
+    // ✅ MOVE IT HERE (outside body)
 
     private func sectionHeader(_ title: String) -> some View {
         HStack {

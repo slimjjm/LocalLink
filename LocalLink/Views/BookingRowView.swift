@@ -9,7 +9,6 @@ struct BookingRowView: View {
         VStack(alignment: .leading, spacing: 10) {
 
             HStack {
-
                 Text(booking.safeServiceName)
                     .font(.headline.weight(.semibold))
                     .foregroundColor(AppColors.charcoal)
@@ -34,7 +33,6 @@ struct BookingRowView: View {
             }
 
             HStack {
-
                 Text(booking.safeStaffName)
                     .font(.subheadline)
                     .foregroundColor(.secondary)
@@ -69,43 +67,33 @@ struct BookingRowView: View {
     }
 
     private var statusText: String {
-        switch booking.status {
 
-        case .confirmed:
-            return "Confirmed"
+        if isCancelled { return "Cancelled" }
+        if booking.status == .refunded { return "Refunded" }
+        if booking.endDate < Date() { return "Completed" }
+        if isInProgress { return "In progress" }
+        if booking.status == .pending_payment { return "Pending" }
 
-        case .completed:
-            return "Completed"
-
-        case .refunded:
-            return "Refunded"
-
-        case .cancelled_by_business, .cancelled_by_customer:
-            return "Cancelled"
-
-        case .pending_payment:
-            return "Pending"
-        }
+        return "Confirmed"
     }
 
     private var statusColor: Color {
-        switch booking.status {
 
-        case .confirmed:
-            return AppColors.success
+        if isCancelled { return AppColors.error }
+        if booking.status == .refunded { return .gray }
+        if booking.endDate < Date() { return .green }
+        if isInProgress { return .orange }
+        if booking.status == .pending_payment { return AppColors.primary }
 
-        case .completed:
-            return AppColors.charcoal
+        return AppColors.success
+    }
 
-        case .refunded:
-            return .gray
+    private var isCancelled: Bool {
+        booking.status == .cancelled_by_business || booking.status == .cancelled_by_customer
+    }
 
-        case .cancelled_by_business, .cancelled_by_customer:
-            return AppColors.error
-
-        case .pending_payment:
-            return AppColors.primary
-        }
+    private var isInProgress: Bool {
+        booking.startDate <= Date() && booking.endDate >= Date()
     }
 
     // MARK: - Date

@@ -3,8 +3,8 @@ import FirebaseAuth
 import FirebaseFirestore
 
 struct OwnedBusinessSummary: Identifiable {
-    let id: String            // businessId (document ID)
-    let name: String
+    let id: String
+    let businessName: String
     let createdAt: Date?
 }
 
@@ -17,6 +17,11 @@ final class BusinessResolverViewModel: ObservableObject {
     @Published var selectedBusinessId: String? = nil
 
     private let db = Firestore.firestore()
+
+    var selectedBusiness: OwnedBusinessSummary? {
+        guard let selectedBusinessId else { return nil }
+        return businesses.first(where: { $0.id == selectedBusinessId })
+    }
 
     func load() {
         isLoading = true
@@ -51,24 +56,23 @@ final class BusinessResolverViewModel: ObservableObject {
 
                 let mapped: [OwnedBusinessSummary] = docs.map { doc in
                     let data = doc.data()
-                    let name = (data["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let businessName = (data["businessName"] as? String)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
                     let createdAt = (data["createdAt"] as? Timestamp)?.dateValue()
 
                     return OwnedBusinessSummary(
                         id: doc.documentID,
-                        name: (name?.isEmpty == false) ? name! : "Unnamed Business",
+                        businessName: (businessName?.isEmpty == false) ? businessName! : "Unnamed Business",
                         createdAt: createdAt
                     )
                 }
 
-                // V1 behaviour: auto-select a business.
-                // Preference: newest first (by createdAt), otherwise stable by name.
                 let sorted = mapped.sorted { a, b in
                     switch (a.createdAt, b.createdAt) {
                     case let (da?, db?):
                         return da > db
                     case (nil, nil):
-                        return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+                        return a.businessName.localizedCaseInsensitiveCompare(b.businessName) == .orderedAscending
                     case (nil, _?):
                         return false
                     case (_?, nil):

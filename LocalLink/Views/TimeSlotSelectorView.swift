@@ -74,6 +74,38 @@ struct TimeSlotSelectorView: View {
     @State private var selectedSlot: Date?
     
     private let db = Firestore.firestore()
+    private let minimumNoticeHours: Double = 2
+    
+    private var earliestBookableDate: Date {
+        let nowPlusNotice = Date().addingTimeInterval(minimumNoticeHours * 3600)
+        let startOfSelectedDay = Calendar.current.startOfDay(for: date)
+        return max(nowPlusNotice, startOfSelectedDay)
+    }
+    
+    private var filteredSlotToStaff: [Date: [(slotId: String, staff: Staff)]] {
+        slotToStaff.filter { slotDate, _ in
+            slotDate >= earliestBookableDate
+        }
+    }
+    
+    private var sortedSlots: [Date] {
+        SlotFilterEngine.validStartTimes(
+            slotToStaff: filteredSlotToStaff,
+            durationMinutes: service.durationMinutes
+        )
+    }
+    
+    private var emptyStateTitle: String {
+        Calendar.current.isDateInToday(date)
+        ? "No more availability today"
+        : "No availability"
+    }
+    
+    private var emptyStateDescription: String {
+        Calendar.current.isDateInToday(date)
+        ? "There are no more bookable slots today."
+        : "No slots left on this date."
+    }
     
     var body: some View {
         
@@ -87,12 +119,12 @@ struct TimeSlotSelectorView: View {
                 
                 ProgressView("Loading availability…")
                 
-            } else if slotToStaff.isEmpty {
+            } else if sortedSlots.isEmpty {
                 
                 ContentUnavailableView(
-                    "Fully booked",
+                    emptyStateTitle,
                     systemImage: "calendar.badge.exclamationmark",
-                    description: Text("No slots left on this date.")
+                    description: Text(emptyStateDescription)
                 )
                 
             } else {
@@ -111,7 +143,7 @@ struct TimeSlotSelectorView: View {
                             
                             Spacer()
                             
-                            Text("\(slotToStaff[slot]?.count ?? 0) available")
+                            Text("\(filteredSlotToStaff[slot]?.count ?? 0) available")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                             
@@ -137,7 +169,7 @@ struct TimeSlotSelectorView: View {
             }
             
             if let selectedSlot,
-               let slotOptions = slotToStaff[selectedSlot],
+               let slotOptions = filteredSlotToStaff[selectedSlot],
                let chosen = slotOptions.first,
                let serviceId = service.id,
                let staffId = chosen.staff.id {
@@ -171,13 +203,7 @@ struct TimeSlotSelectorView: View {
             loadSlots()
         }
     }
-    
-    private var sortedSlots: [Date] {
-        SlotFilterEngine.validStartTimes(
-            slotToStaff: slotToStaff,
-            durationMinutes: service.durationMinutes
-        )
-    }
+   
     
     // MARK: - Load PRE-GENERATED SAFE SLOTS ONLY
     
@@ -210,7 +236,7 @@ struct TimeSlotSelectorView: View {
                 } ?? []
                 
                 let eligibleStaff = staffList.filter { staff in
-                    guard let serviceId = service.id else { return false }
+                    guard let serviceId = self.service.id else { return false }
                     let serviceIds = staff.serviceIds ?? []
                     return serviceIds.contains(serviceId)
                 }
@@ -223,6 +249,7 @@ struct TimeSlotSelectorView: View {
                 }
                 
                 let group = DispatchGroup()
+                var gathered: [Date: [(slotId: String, staff: Staff)]] = [:]
                 
                 for staff in eligibleStaff {
                     
@@ -252,15 +279,14 @@ struct TimeSlotSelectorView: View {
                                 return (slotId: doc.documentID, slotDate: ts.dateValue())
                             } ?? []
                             
-                            DispatchQueue.main.async {
-                                for slot in slots {
-                                    self.slotToStaff[slot.slotDate, default: []].append((slotId: slot.slotId, staff: staff))
-                                }
+                            for slot in slots {
+                                gathered[slot.slotDate, default: []].append((slotId: slot.slotId, staff: staff))
                             }
                         }
                 }
                 
                 group.notify(queue: .main) {
+                    self.slotToStaff = gathered
                     self.isLoading = false
                 }
             }

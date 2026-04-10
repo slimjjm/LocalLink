@@ -7,17 +7,17 @@ struct PhotoDropDelegate: DropDelegate {
     let currentIndex: Int
 
     func performDrop(info: DropInfo) -> Bool {
-        return true
+        true
     }
 
     func dropEntered(info: DropInfo) {
         guard let fromIndex = items.firstIndex(of: item) else { return }
+        guard fromIndex != currentIndex else { return }
+        guard items.indices.contains(currentIndex) else { return }
 
-        if fromIndex != currentIndex {
-            withAnimation {
-                let movedItem = items.remove(at: fromIndex)
-                items.insert(movedItem, at: currentIndex)
-            }
+        withAnimation {
+            let movedItem = items.remove(at: fromIndex)
+            items.insert(movedItem, at: currentIndex)
         }
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import FirebaseFirestore   // ✅ ADD THIS
 import FirebaseFirestoreSwift
 
 struct BusinessService: Identifiable, Codable, Hashable {
@@ -10,11 +11,8 @@ struct BusinessService: Identifiable, Codable, Hashable {
     let price: Double
     let durationMinutes: Int
 
-    // NEW: where the service happens
-    // "in_store" (default) or "mobile"
     let locationType: String?
-
-    // Optional so older docs decode safely
     let isActive: Bool?
-    let createdAt: Date?
+    
+    let createdAt: Timestamp?   // ✅ now works
 }

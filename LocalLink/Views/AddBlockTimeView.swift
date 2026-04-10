@@ -14,6 +14,9 @@ struct AddBlockTimeView: View {
     @State private var endDate: Date = Date().addingTimeInterval(3600)
     @State private var isSaving: Bool = false
 
+    // ✅ SUCCESS UI
+    @State private var showSuccessBanner = false
+
     // 🔥 Conflict Flow State
     @State private var conflicts: [BookingConflict] = []
     @State private var showConflictSheet = false
@@ -36,49 +39,78 @@ struct AddBlockTimeView: View {
 
     var body: some View {
 
-        Form {
+        ZStack {
 
-            Section("Reason") {
-                Picker("Type", selection: $title) {
-                    ForEach(options, id: \.self) {
-                        Text($0)
+            Form {
+
+                Section("Reason") {
+                    Picker("Type", selection: $title) {
+                        ForEach(options, id: \.self) {
+                            Text($0)
+                        }
                     }
                 }
-            }
 
-            Section("Start") {
-                DatePicker(
-                    "Start time",
-                    selection: $startDate,
-                    displayedComponents: [.date, .hourAndMinute]
-                )
-            }
-
-            Section("End") {
-                DatePicker(
-                    "End time",
-                    selection: $endDate,
-                    in: startDate...,
-                    displayedComponents: [.date, .hourAndMinute]
-                )
-            }
-            .onChange(of: startDate) { newValue in
-                endDate = newValue.addingTimeInterval(1800)
-            }
-            Section {
-                Button {
-                    save()
-                } label: {
-                    if isSaving {
-                        ProgressView()
-                    } else {
-                        Text("Save block")
-                    }
+                Section("Start") {
+                    DatePicker(
+                        "Start time",
+                        selection: $startDate,
+                        displayedComponents: [.date, .hourAndMinute]
+                    )
                 }
-                .disabled(isSaving || !isEndAfterStart)
+
+                Section("End") {
+                    DatePicker(
+                        "End time",
+                        selection: $endDate,
+                        in: startDate...,
+                        displayedComponents: [.date, .hourAndMinute]
+                    )
+                }
+                .onChange(of: startDate) { newValue in
+                    endDate = newValue.addingTimeInterval(1800)
+                }
+
+                Section {
+                    Button {
+                        save()
+                    } label: {
+                        if isSaving {
+                            ProgressView()
+                        } else {
+                            Text("Save block")
+                        }
+                    }
+                    .disabled(isSaving || !isEndAfterStart)
+                }
+            }
+            .navigationTitle("Block time")
+
+            // ✅ SUCCESS BANNER
+            if showSuccessBanner {
+                VStack {
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.white)
+
+                        Text("Time blocked")
+                            .font(.subheadline.bold())
+                            .foregroundColor(.white)
+
+                        Spacer()
+                    }
+                    .padding()
+                    .background(AppColors.success)
+                    .cornerRadius(12)
+                    .padding(.horizontal)
+                    .padding(.top, 12)
+
+                    Spacer()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(1)
             }
         }
-        .navigationTitle("Block time")
 
         // =================================================
         // CONFLICT SHEET
@@ -141,7 +173,6 @@ struct AddBlockTimeView: View {
         Task {
             do {
 
-                // 1️⃣ Check conflicts FIRST
                 let foundConflicts = try await conflictService.fetchConflictingBookings(
                     businessId: businessId,
                     staffId: staffId,
@@ -160,7 +191,6 @@ struct AddBlockTimeView: View {
                     return
                 }
 
-                // 2️⃣ No conflicts → proceed normally
                 try await applyBlockAndRegen()
 
             } catch {
@@ -192,8 +222,18 @@ struct AddBlockTimeView: View {
         )
 
         await MainActor.run {
+
             isSaving = false
-            dismiss()
+
+            // ✅ SHOW SUCCESS
+            withAnimation {
+                showSuccessBanner = true
+            }
+
+            // Auto hide + dismiss
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                dismiss()
+            }
         }
     }
 

@@ -6,14 +6,12 @@ struct BusinessChat: Identifiable {
     let id: String
     let businessId: String
     let customerId: String
+    let previewName: String
     let lastMessage: String
+    let timestamp: Date
     let unreadCount: Int
     
-    var previewName: String {
-        "Customer" // 🔥 upgrade later with real names
-    }
-    
-    init?(document: QueryDocumentSnapshot) {
+    init?(document: QueryDocumentSnapshot, role: String) {
         
         let data = document.data()
         
@@ -27,6 +25,22 @@ struct BusinessChat: Identifiable {
         self.businessId = businessId
         self.customerId = customerId
         self.lastMessage = lastMessage
-        self.unreadCount = data["unreadForBusiness"] as? Int ?? 0
+        
+        // 👇 name logic
+        if role == "customer" {
+            self.previewName = data["businessName"] as? String ?? "Business"
+        } else {
+            self.previewName = data["customerName"] as? String ?? "Customer"
+        }
+        
+        // 👇 timestamp
+        self.timestamp = (data["lastMessageAt"] as? Timestamp)?.dateValue() ?? Date()
+        
+        // 👇 unread logic (THIS IS KEY)
+        if role == "customer" {
+            self.unreadCount = data["unreadForCustomer"] as? Int ?? 0
+        } else {
+            self.unreadCount = data["unreadForBusiness"] as? Int ?? 0
+        }
     }
 }

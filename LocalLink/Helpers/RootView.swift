@@ -18,9 +18,8 @@ struct RootView: View {
         }
         
         // ✅ Return to pending route after login
-        .onChange(of: authManager.isAuthenticated) { isAuthenticated in
-            
-            guard isAuthenticated else { return }
+        .onChange(of: authManager.isAuthenticated) { newValue in
+            guard newValue else { return }
             
             if let pending = nav.pendingRoute {
                 nav.reset()
@@ -33,16 +32,27 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .didSelectRole)) { _ in
             nav.reset()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .didLogout)) { _ in
+            nav.reset()
+            nav.pendingRoute = nil   // 🔥 prevent ghost navigation
+        }
         
         // 🔔 Deep link into booking chat
-        .onChange(of: notificationRouter.bookingIdToOpen) { bookingId in
+        .onChange(of: notificationRouter.bookingIdToOpen) {
             
-            guard let bookingId else { return }
+            guard let bookingId = notificationRouter.bookingIdToOpen else { return }
             
-            nav.path.append(AppRoute.bookingChat(bookingId: bookingId))
+            // TEMP FIX: open booking detail (safe)
+            nav.path.append(
+                .bookingDetail(
+                    bookingId: bookingId,
+                    role: authManager.role?.rawValue ?? "customer"
+                )
+            )
+            
             notificationRouter.bookingIdToOpen = nil
         }
-    }
+        }
 }
 
 // MARK: - ROOT ROUTER
@@ -150,14 +160,11 @@ private extension RootView {
             
         // MARK: - Chat
             
-        case .bookingChat(let bookingId):
-            BookingChatView(
-                bookingId: bookingId,
-                businessId: "",        // ✅ leave empty (BookingChatView loads it)
-                customerId: "",
-                currentUserRole: authManager.role == .business ? "business" : "customer"
+        case .bookingChat(let businessId, let customerId):
+            EnquiryChatView(
+                businessId: businessId,
+                customerId: customerId
             )
-            
             
         // MARK: - Staff
             

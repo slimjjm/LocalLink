@@ -3,6 +3,7 @@ import PhotosUI
 import FirebaseStorage
 import UniformTypeIdentifiers
 import FirebaseAuth
+import FirebaseFirestore
 
 struct BusinessProfileEditView: View {
     
@@ -15,6 +16,7 @@ struct BusinessProfileEditView: View {
     @State private var selectedItem: PhotosPickerItem?
     @State private var isUploading = false
     
+    @State private var selectedImage: UIImage?
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
@@ -36,10 +38,26 @@ struct BusinessProfileEditView: View {
             viewModel.load(businessId: businessId)
         }
         .onChange(of: selectedItem) { _, newItem in
-            guard newItem != nil else { return }
-            
+            guard let newItem else { return }
+
+            isUploading = true
+
             Task {
-                await uploadImage(businessId: businessId)
+                do {
+                    if let data = try await newItem.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+
+                        // ✅ STORE IMAGE FOR UPLOAD
+                        selectedImage = image
+
+                        // ✅ NOW UPLOAD
+                        await uploadImage(businessId: businessId)
+                    }
+                } catch {
+                    viewModel.errorMessage = error.localizedDescription
+                }
+
+                isUploading = false
             }
         }
     }
@@ -103,8 +121,6 @@ private extension BusinessProfileEditView {
                         } label: {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(result.title)
-                                    .foregroundColor(.primary)
-                                
                                 Text(result.subtitle)
                                     .font(.caption)
                                     .foregroundColor(.secondary)
@@ -112,10 +128,7 @@ private extension BusinessProfileEditView {
                             .padding(10)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        
-                        if result.id != addressSearch.results.last?.id {
-                            Divider()
-                        }
+                        Divider()
                     }
                 }
                 .background(Color(.secondarySystemBackground))
@@ -124,24 +137,72 @@ private extension BusinessProfileEditView {
         }
     }
     
+    // MARK: - PHOTOS (NEW PREMIUM LAYOUT)
+
     var photosSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 14) {
+
             Text("Photos")
                 .font(.headline)
-            
+
+            // COVER IMAGE
+            if let coverURL = viewModel.photoURLs.first,
+               let url = URL(string: coverURL) {
+
+                ZStack(alignment: .topTrailing) {
+
+                    AsyncImage(url: url) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        ZStack {
+                            Color(.secondarySystemBackground)
+                            ProgressView()
+                        }
+                    }
+                    .frame(height: 200)
+                    .frame(maxWidth: .infinity)
+                    .clipped()
+                    .cornerRadius(16)
+
+                    Button {
+                        Task {
+                            await viewModel.deletePhoto(businessId: businessId, at: 0)
+                        }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.white)
+                            .background(Color.black.opacity(0.6))
+                            .clipShape(Circle())
+                    }
+                    .padding(8)
+
+                    Text("Cover")
+                        .font(.caption.bold())
+                        .padding(6)
+                        .background(Color.black.opacity(0.7))
+                        .foregroundColor(.white)
+                        .cornerRadius(6)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                }
+            }
+
+            // THUMBNAILS
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    
-                    ForEach(viewModel.photoURLs.indices, id: \.self) { index in
+
+                    ForEach(viewModel.photoURLs.indices.dropFirst(), id: \.self) { index in
                         BusinessPhotoTile(
                             urlString: viewModel.photoURLs[index],
-                            isCover: index == 0,
+                            isCover: false,
                             onDelete: {
-                                viewModel.removePhoto(at: index)
+                                Task {
+                                    await viewModel.deletePhoto(businessId: businessId, at: index)
+                                }
                             }
                         )
                         .onDrag {
-                            NSItemProvider(object: "\(index)" as NSString)
+                            NSItemProvider(object: viewModel.photoURLs[index] as NSString)
                         }
                         .onDrop(
                             of: [UTType.text],
@@ -152,14 +213,14 @@ private extension BusinessProfileEditView {
                             )
                         )
                     }
-                    
+
                     if viewModel.photoURLs.count < 5 {
                         addPhotoButton
                     }
                 }
             }
-            
-            Text("Add up to 5 photos")
+
+            Text("Drag photos to reorder. First photo is your cover.")
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
@@ -172,7 +233,6 @@ private extension BusinessProfileEditView {
                     ProgressView()
                 } else {
                     Image(systemName: "plus")
-                        .font(.title3)
                     Text("Add")
                         .font(.caption)
                 }
@@ -185,57 +245,33 @@ private extension BusinessProfileEditView {
     }
     
     var categorySection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Category")
-                .font(.headline)
-            
-            Picker("Category", selection: $viewModel.selectedCategory) {
-                Text("Select category")
-                    .tag(nil as BusinessCategory?)
-                
-                ForEach(BusinessCategory.allCases) { category in
-                    Text(category.rawValue)
-                        .tag(category as BusinessCategory?)
-                }
+        Picker("Category", selection: $viewModel.selectedCategory) {
+            ForEach(BusinessCategory.allCases) { category in
+                Text(category.rawValue).tag(category as BusinessCategory?)
             }
-            .pickerStyle(.menu)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .pickerStyle(.menu)
     }
     
     var townSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Base Town")
-                .font(.headline)
-            
-            Picker("Base Town", selection: $viewModel.selectedTown) {
-                Text("Select town")
-                    .tag(nil as SupportedTown?)
-                
-                ForEach(SupportedTown.allCases) { town in
-                    Text(town.rawValue)
-                        .tag(town as SupportedTown?)
-                }
+        Picker("Town", selection: $viewModel.selectedTown) {
+            ForEach(SupportedTown.allCases) { town in
+                Text(town.rawValue).tag(town as SupportedTown?)
             }
-            .pickerStyle(.menu)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .pickerStyle(.menu)
     }
     
     var settingsSection: some View {
-        VStack(spacing: 12) {
+        VStack {
             Toggle("Mobile business", isOn: $viewModel.isMobile)
-            Toggle("Business is active", isOn: $viewModel.isActive)
+            Toggle("Business active", isOn: $viewModel.isActive)
         }
     }
     
-    @ViewBuilder
     var errorSection: some View {
-        if !viewModel.errorMessage.isEmpty {
-            Text(viewModel.errorMessage)
-                .foregroundColor(.red)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        Text(viewModel.errorMessage)
+            .foregroundColor(.red)
     }
     
     var saveSection: some View {
@@ -244,18 +280,10 @@ private extension BusinessProfileEditView {
                 dismiss()
             }
         } label: {
-            Group {
-                if viewModel.isSaving {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                } else {
-                    Text("Save changes")
-                        .frame(maxWidth: .infinity)
-                }
-            }
+            Text(viewModel.isSaving ? "Saving..." : "Save changes")
+                .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
-        .disabled(!viewModel.isValid || viewModel.isSaving || isUploading)
     }
 }
 
@@ -264,69 +292,44 @@ private extension BusinessProfileEditView {
 private extension BusinessProfileEditView {
     
     func uploadImage(businessId: String) async {
-        guard let item = selectedItem else { return }
-
-        // 🔍 DEBUG
-        print("📸 Upload started")
-        print("➡️ businessId:", businessId)
-        print("➡️ auth uid:", Auth.auth().currentUser?.uid ?? "nil")
-
-        isUploading = true
-
-        defer {
-            isUploading = false
-            selectedItem = nil
+        guard
+            let image = selectedImage,
+            let data = image.jpegData(compressionQuality: 0.7),
+            let uid = Auth.auth().currentUser?.uid
+        else {
+            viewModel.errorMessage = "No image selected"
+            return
         }
+
+        let fileName = UUID().uuidString + ".jpg"
+        let path = "businessPhotos/\(businessId)/\(fileName)"
+        let ref = Storage.storage().reference().child(path)
+
+        let metadata = StorageMetadata()
+        metadata.contentType = "image/jpeg"
+        metadata.customMetadata = [
+            "ownerId": uid
+        ]
 
         do {
-            guard let data = try await item.loadTransferable(type: Data.self),
-                  let image = UIImage(data: data),
-                  let compressed = image.jpegData(compressionQuality: 0.7) else {
-                viewModel.errorMessage = "Failed to prepare image."
-                print("❌ Image preparation failed")
-                return
-            }
-
-            let fileName = UUID().uuidString + ".jpg"
-            let path = "businessPhotos/\(businessId)/\(fileName)"
-
-            // 🔍 DEBUG
-            print("📂 Upload path:", path)
-
-            let ref = Storage.storage()
-                .reference()
-                .child(path)
-
-            print("⬆️ Starting upload...")
-
-            _ = try await ref.putDataAsync(compressed)
-
-            print("✅ Upload success")
-
+            _ = try await ref.putDataAsync(data, metadata: metadata)
             let url = try await ref.downloadURL()
 
-            print("🌍 Download URL:", url.absoluteString)
-
-            viewModel.addPhotoURL(url.absoluteString)
-
+            try await viewModel.appendUploadedPhotoAndPersist(
+                businessId: businessId,
+                urlString: url.absoluteString
+            )
         } catch {
             viewModel.errorMessage = error.localizedDescription
-            print("❌ Upload failed:", error.localizedDescription)
         }
     }
-    
     func selectAddress(_ result: AddressResult) {
         viewModel.address = "\(result.title), \(result.subtitle)"
         addressSearch.clear()
-        
-        Task {
-            if let coordinate = await addressSearch.resolveCoordinate(for: result) {
-                viewModel.latitude = coordinate.latitude
-                viewModel.longitude = coordinate.longitude
-            }
-        }
     }
-}// MARK: - Photo Tile
+}
+
+// MARK: - Photo Tile
 
 private struct BusinessPhotoTile: View {
     
@@ -338,43 +341,20 @@ private struct BusinessPhotoTile: View {
         ZStack(alignment: .topTrailing) {
             
             AsyncImage(url: URL(string: urlString)) { image in
-                image
-                    .resizable()
-                    .scaledToFill()
+                image.resizable().scaledToFill()
             } placeholder: {
-                ZStack {
-                    Color(.secondarySystemBackground)
-                    ProgressView()
-                }
+                Color(.secondarySystemBackground)
             }
             .frame(width: 110, height: 110)
             .clipped()
             .cornerRadius(14)
-            .overlay(alignment: .bottomLeading) {
-                if isCover {
-                    coverBadge
-                        .padding(6)
-                }
-            }
             
             Button {
                 onDelete()
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundColor(.white)
-                    .background(Color.black.opacity(0.6))
-                    .clipShape(Circle())
             }
-            .offset(x: 6, y: -6)
         }
-    }
-    
-    private var coverBadge: some View {
-        Text("Cover")
-            .font(.caption2.bold())
-            .padding(6)
-            .background(Color.black.opacity(0.7))
-            .foregroundColor(.white)
-            .cornerRadius(6)
     }
 }

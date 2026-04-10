@@ -2,126 +2,73 @@ import Foundation
 import FirebaseFirestore
 import FirebaseAuth
 
-struct ChatPreview: Identifiable {
-    let id: String
-    let bookingId: String
-    let title: String
-    let lastMessage: String
-    let unreadCount: Int
-    let timestamp: Date
-}
-
 @MainActor
 final class ChatUnreadViewModel: ObservableObject {
     
     @Published var totalUnread: Int = 0
-    @Published var recentChats: [ChatPreview] = []
     
     private let db = Firestore.firestore()
     private var listener: ListenerRegistration?
     
-    func startListening(role: String, businessId: String?) {
+    // MARK: - Start Listening
+    
+    func startListening(role: String, businessId: String? = nil) {
         
         guard let uid = Auth.auth().currentUser?.uid else { return }
         
+        // Remove existing listener
         listener?.remove()
         
         let query: Query
         
+        // ✅ CUSTOMER
         if role == "customer" {
-            query = db.collection("bookings")
+            
+            query = db.collection("businessChats")
                 .whereField("customerId", isEqualTo: uid)
+            
+        // ✅ BUSINESS
         } else {
-            guard let businessId else { return }
-            query = db.collection("bookings")
+            
+            guard let businessId else {
+                print("❌ Missing businessId for business unread listener")
+                return
+            }
+            
+            query = db.collection("businessChats")
                 .whereField("businessId", isEqualTo: businessId)
         }
         
         listener = query.addSnapshotListener { [weak self] snapshot, error in
+            
             if let error {
-                print("❌ Chat unread listener error:", error)
+                print("❌ Unread listener error:", error.localizedDescription)
                 return
             }
-
+            
             guard let documents = snapshot?.documents else { return }
-
-            Task {
-                await self?.processBookings(documents: documents, role: role)
+            
+            var total = 0
+            
+            for doc in documents {
+                
+                let data = doc.data()
+                
+                let unread = role == "customer"
+                    ? data["unreadForCustomer"] as? Int ?? 0
+                    : data["unreadForBusiness"] as? Int ?? 0
+                
+                total += unread
+            }
+            
+            DispatchQueue.main.async {
+                self?.totalUnread = total
             }
         }
     }
-
-    // 🔥 NEW — ASYNC PROCESSING
-    private func processBookings(documents: [QueryDocumentSnapshot], role: String) async {
-
-        var total = 0
-        var chats: [ChatPreview] = []
-
-        for doc in documents {
-            
-            let data = doc.data()
-            let bookingId = doc.documentID
-            
-            let unread = role == "customer"
-                ? data["unreadForCustomer"] as? Int ?? 0
-                : data["unreadForBusiness"] as? Int ?? 0
-            
-            total += unread
-            
-            let title: String = {
-                if role == "customer" {
-                    return data["businessName"] as? String ?? "Business"
-                } else {
-                    return data["customerName"] as? String ?? "Customer"
-                }
-            }()
-            
-            // 🔥 FETCH LAST MESSAGE
-            let lastMessageData = await fetchLastMessage(bookingId: bookingId)
-            
-            let lastMessage = lastMessageData?.text ?? "Start conversation"
-            let timestamp = lastMessageData?.createdAt ?? Date.distantPast
-            
-            chats.append(
-                ChatPreview(
-                    id: bookingId,
-                    bookingId: bookingId,
-                    title: title,
-                    lastMessage: lastMessage,
-                    unreadCount: unread,
-                    timestamp: timestamp
-                )
-            )
-        }
-
-        chats.sort { $0.timestamp > $1.timestamp }
-
-        self.totalUnread = total
-        self.recentChats = chats
-    }
-
-    // 🔥 NEW — FETCH LAST MESSAGE
-    private func fetchLastMessage(bookingId: String) async -> BookingMessage? {
-        
-        do {
-            let snapshot = try await db
-                .collection("bookings")
-                .document(bookingId)
-                .collection("messages")
-                .order(by: "createdAt", descending: true)
-                .limit(to: 1)
-                .getDocuments()
-            
-            return snapshot.documents.first.flatMap {
-                try? $0.data(as: BookingMessage.self)
-            }
-            
-        } catch {
-            print("❌ Failed to fetch last message:", error)
-            return nil
-        }
-    }
-
+    
+    // MARK: - Stop Listening
+    
     func stopListening() {
         listener?.remove()
         listener = nil

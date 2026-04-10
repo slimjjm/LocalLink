@@ -2,6 +2,7 @@ import Foundation
 import FirebaseFirestore
 import FirebaseAuth
 
+@MainActor
 final class InboxViewModel: ObservableObject {
     
     @Published var conversations: [Conversation] = []
@@ -9,63 +10,82 @@ final class InboxViewModel: ObservableObject {
     private let db = Firestore.firestore()
     private var listener: ListenerRegistration?
     
-    func startListening() {
+    // MARK: - Start Listening
+    
+    func startListening(role: String, businessId: String) {
         
-        guard let uid = Auth.auth().currentUser?.uid else { return }
+        guard let user = Auth.auth().currentUser else { return }
         
-        listener = db.collection("bookings")
-            .whereField("customerId", isEqualTo: uid)
-            .order(by: "startDate", descending: true)
-            .addSnapshotListener { [weak self] snapshot, _ in
+        // 🚫 Block anonymous users
+        guard !user.isAnonymous else {
+            conversations = []
+            return
+        }
+        
+        stopListening()
+        
+        let query: Query
+        
+        if role == "customer" {
+            query = db.collection("businessChats")
+                .whereField("customerId", isEqualTo: user.uid)
+        } else {
+            query = db.collection("businessChats")
+                .whereField("businessId", isEqualTo: businessId)
+        }
+        
+        listener = query
+            .order(by: "lastMessageAt", descending: true)
+            .addSnapshotListener { [weak self] snapshot, error in
                 
-                guard let self else { return }
-                guard let docs = snapshot?.documents else { return }
-                
-                var temp: [Conversation] = []
-                let group = DispatchGroup()
-                
-                for doc in docs {
-                    
-                    let data = doc.data()
-                    let bookingId = doc.documentID
-                    
-                    let title = data["serviceName"] as? String ?? "Business"
-                    let unread = data["unreadForCustomer"] as? Int ?? 0
-                    
-                    group.enter()
-                    
-                    self.db.collection("bookings")
-                        .document(bookingId)
-                        .collection("messages")
-                        .order(by: "createdAt", descending: true)
-                        .limit(to: 1)
-                        .getDocuments { snap, _ in
-                            
-                            defer { group.leave() }
-                            
-                            let lastDoc = snap?.documents.first
-                            
-                            let text = lastDoc?.data()["text"] as? String ?? "Start conversation"
-                            let timestamp = (lastDoc?.data()["createdAt"] as? Timestamp)?.dateValue() ?? Date()
-                            
-                            temp.append(
-                                Conversation(
-                                    id: bookingId,
-                                    bookingId: bookingId,
-                                    title: title,
-                                    lastMessage: text,
-                                    timestamp: timestamp,
-                                    unreadCount: unread
-                                )
-                            )
-                        }
+                if let error {
+                    print("❌ Inbox error:", error.localizedDescription)
+                    return
                 }
                 
-                group.notify(queue: .main) {
-                    self.conversations = temp.sorted { $0.timestamp > $1.timestamp }
+                guard let docs = snapshot?.documents else {
+                    self?.conversations = []
+                    return
+                }
+                
+                let convos = docs.compactMap { doc -> Conversation? in
+                    
+                    let data = doc.data()
+                    
+                    guard
+                        let businessId = data["businessId"] as? String,
+                        let customerId = data["customerId"] as? String
+                    else { return nil }
+                    
+                    let title: String
+                    let unreadCount: Int
+                    
+                    if role == "customer" {
+                        title = data["businessName"] as? String ?? "Business"
+                        unreadCount = data["unreadForCustomer"] as? Int ?? 0
+                    } else {
+                        title = data["customerName"] as? String ?? "Customer"
+                        unreadCount = data["unreadForBusiness"] as? Int ?? 0
+                    }
+                    
+                    return Conversation(
+                        id: doc.documentID,
+                        businessId: businessId,
+                        customerId: customerId,
+                        title: title,
+                        lastMessage: data["lastMessage"] as? String ?? "",
+                        timestamp: (data["lastMessageAt"] as? Timestamp)?.dateValue() ?? Date(),
+                        unreadCount: unreadCount
+                    )
+                }
+                
+                DispatchQueue.main.async {
+                    self?.conversations = convos
                 }
             }
     }
+    
+    // MARK: - Stop
     
     func stopListening() {
         listener?.remove()

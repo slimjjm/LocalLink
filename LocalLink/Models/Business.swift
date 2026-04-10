@@ -23,24 +23,20 @@ struct Business: Identifiable, Codable, Equatable {
     let stripeConnected: Bool?
     let stripeChargesEnabled: Bool?
     let ownerId: String?
-    
-    // MARK: - Ratings
 
+    // MARK: - Ratings
     let ratingPositiveCount: Int?
     let ratingNegativeCount: Int?
 
     // MARK: - Profile
-
     let bio: String?
     let photoURLs: [String]?
 
     // MARK: - Computed
-
     var ratingScore: Double {
         let positive = Double(ratingPositiveCount ?? 0)
         let negative = Double(ratingNegativeCount ?? 0)
         let total = positive + negative
-        
         guard total > 0 else { return 0 }
         return positive / total
     }

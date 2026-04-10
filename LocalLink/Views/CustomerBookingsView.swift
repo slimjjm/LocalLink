@@ -120,7 +120,8 @@ struct CustomerBookingsView: View {
                 
                 nav.path.append(
                     AppRoute.bookingChat(
-                        bookingId: id
+                        businessId: booking.businessId,
+                        customerId: booking.customerId
                     )
                 )
             }

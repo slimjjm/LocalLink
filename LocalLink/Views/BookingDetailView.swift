@@ -30,7 +30,7 @@ struct BookingDetailView: View {
                 
                 details(for: booking)
                 
-                cancellationPolicyView(for: booking) // ✅ NEW
+                cancellationPolicyView(for: booking)
                 
                 if booking.status == .completed {
                     ratingSection(for: booking)
@@ -40,12 +40,16 @@ struct BookingDetailView: View {
                     newMessageBanner(count: unreadCount(for: booking))
                 }
                 
-                if booking.status == .confirmed {
+                // ✅ Chat allowed during booking
+                if booking.status == .confirmed && booking.startDate <= Date() {
                     chatButton(for: booking)
                 }
                 
+                // ✅ Cancel vs Status
                 if canCancel(booking) {
                     cancelButton(for: booking)
+                } else {
+                    bookingStatusView(for: booking)
                 }
             }
             
@@ -79,7 +83,7 @@ struct BookingDetailView: View {
         }
     }
     
-    // MARK: - Cancellation UI
+    // MARK: - Cancellation
     
     private func cancelButton(for booking: Booking) -> some View {
         Button {
@@ -88,7 +92,7 @@ struct BookingDetailView: View {
             if isCancelling {
                 ProgressView()
             } else {
-                Text(cancelButtonTitle(for: booking)) // ✅ SMART TEXT
+                Text(cancelButtonTitle(for: booking))
             }
         }
         .primaryButton()
@@ -96,25 +100,31 @@ struct BookingDetailView: View {
     }
     
     private func confirmCancel() {
-        guard let bookingId = booking?.id else { return }
+        guard
+            let booking = booking,
+            let bookingId = booking.id,
+            booking.startDate > Date()
+        else { return }
         
         isCancelling = true
         errorMessage = nil
         
         bookingService.cancelBooking(bookingId: bookingId) { result in
-            
             DispatchQueue.main.async {
                 isCancelling = false
                 
-                switch result {
-                case .success:
-                    break
-                    
-                case .failure(let error):
+                if case .failure(let error) = result {
                     errorMessage = error.localizedDescription
                 }
             }
         }
+    }
+    
+    private func canCancel(_ booking: Booking) -> Bool {
+        booking.status == .confirmed
+        && booking.startDate > Date()
+        && booking.status != .cancelled_by_business
+        && booking.status != .cancelled_by_customer
     }
     
     private func cancelMessage() -> String {
@@ -124,38 +134,61 @@ struct BookingDetailView: View {
             return "This will cancel the booking and refund the customer."
         }
         
-        if hoursUntilBooking(booking) >= 24 {
-            return "You will receive a full refund."
-        } else {
-            return "This booking is less than 24 hours away and is non-refundable."
-        }
+        return hoursUntilBooking(booking) >= 24
+        ? "You will receive a full refund."
+        : "This booking is less than 24 hours away and is non-refundable."
     }
     
     private func cancelButtonTitle(for booking: Booking) -> String {
-        if currentUserRole == "business" {
-            return "Cancel & Refund"
-        }
+        if currentUserRole == "business" { return "Cancel & Refund" }
         
-        if hoursUntilBooking(booking) >= 24 {
-            return "Cancel & Refund"
-        } else {
-            return "Cancel (No Refund)"
-        }
+        return hoursUntilBooking(booking) >= 24
+        ? "Cancel & Refund"
+        : "Cancel (No Refund)"
     }
     
     private func hoursUntilBooking(_ booking: Booking) -> Double {
         booking.startDate.timeIntervalSinceNow / 3600
     }
     
-    private func canCancel(_ booking: Booking) -> Bool {
-        booking.status == .confirmed
+    // MARK: - Status (FIXED)
+    
+    @ViewBuilder
+    private func bookingStatusView(for booking: Booking) -> some View {
+
+        if booking.status == .cancelled_by_business || booking.status == .cancelled_by_customer {
+            statusPill(text: "Cancelled", color: .red)
+        }
+        else if booking.startDate <= Date() && booking.endDate >= Date() {
+            statusPill(text: "In progress", color: .orange)
+        }
+        else if booking.endDate < Date() {
+            VStack(spacing: 10) {
+                statusPill(text: "Completed", color: .green)
+
+                Button("Book again") {
+                    // TODO: navigate
+                }
+                .primaryButton()
+            }
+        }
     }
     
-    // MARK: - Cancellation Policy View
+    private func statusPill(text: String, color: Color) -> some View {
+        Text(text)
+            .font(.caption.bold())
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(color.opacity(0.15))
+            .foregroundColor(color)
+            .cornerRadius(10)
+    }
+    
+    // MARK: - Cancellation Policy
     
     private func cancellationPolicyView(for booking: Booking) -> some View {
         
-        let deadline = freeCancellationDeadline(booking)
+        let deadline = Calendar.current.date(byAdding: .hour, value: -24, to: booking.startDate) ?? booking.startDate
         let isPast = Date() > deadline
         
         return VStack(alignment: .leading, spacing: 6) {
@@ -167,22 +200,17 @@ struct BookingDetailView: View {
                 Text("If you cancel, the customer will receive a full refund.")
                     .foregroundColor(.secondary)
             } else {
-                if isPast {
-                    Text("This booking is now non-refundable.")
-                        .foregroundColor(AppColors.error)
-                } else {
-                    Text("Free cancellation until \(dateFormatter.string(from: deadline))")
-                        .foregroundColor(AppColors.success)
-                }
+                Text(
+                    isPast
+                    ? "This booking is now non-refundable."
+                    : "Free cancellation until \(dateFormatter.string(from: deadline))"
+                )
+                .foregroundColor(isPast ? AppColors.error : AppColors.success)
             }
         }
         .padding()
         .background(AppColors.primary.opacity(0.08))
         .cornerRadius(12)
-    }
-    
-    private func freeCancellationDeadline(_ booking: Booking) -> Date {
-        Calendar.current.date(byAdding: .hour, value: -24, to: booking.startDate) ?? booking.startDate
     }
     
     private var dateFormatter: DateFormatter {
@@ -223,7 +251,6 @@ struct BookingDetailView: View {
         let businessRef = db.collection("businesses").document(booking.businessId)
 
         db.runTransaction({ transaction, errorPointer in
-
             do {
                 let bookingSnap = try transaction.getDocument(bookingRef)
 
@@ -236,9 +263,7 @@ struct BookingDetailView: View {
                     "ratedAt": FieldValue.serverTimestamp()
                 ], forDocument: bookingRef)
 
-                let field = value == "up"
-                    ? "ratingPositiveCount"
-                    : "ratingNegativeCount"
+                let field = value == "up" ? "ratingPositiveCount" : "ratingNegativeCount"
 
                 transaction.updateData([
                     field: FieldValue.increment(Int64(1))
@@ -250,7 +275,6 @@ struct BookingDetailView: View {
             }
 
             return nil
-
         }) { _, error in
             if let error {
                 print("Rating failed:", error)
@@ -260,7 +284,7 @@ struct BookingDetailView: View {
         }
     }
     
-    // MARK: - Chat + Unread
+    // MARK: - Chat
     
     private func unreadCount(for booking: Booking) -> Int {
         currentUserRole == "customer"
@@ -277,11 +301,9 @@ struct BookingDetailView: View {
     
     private func chatButton(for booking: Booking) -> some View {
         NavigationLink("Open Chat") {
-            BookingChatView(
-                bookingId: booking.id ?? "",
+            EnquiryChatView(
                 businessId: booking.businessId,
-                customerId: booking.customerId,
-                currentUserRole: currentUserRole
+                customerId: booking.customerId
             )
         }
         .primaryButton()

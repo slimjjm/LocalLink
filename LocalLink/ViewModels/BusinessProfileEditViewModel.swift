@@ -1,5 +1,6 @@
 import Foundation
 import FirebaseFirestore
+import FirebaseStorage
 import MapKit
 
 @MainActor
@@ -17,17 +18,20 @@ final class BusinessProfileEditViewModel: ObservableObject {
 
     @Published var isActive: Bool = true
     @Published var bio: String = ""
-    @Published var photoURLs: [String] = []   // ✅ FIXED + USED
+    @Published var photoURLs: [String] = []
 
     // Geo
+
     @Published var latitude: Double?
     @Published var longitude: Double?
 
     // UI
+
     @Published var isSaving: Bool = false
     @Published var errorMessage: String = ""
 
     private let db = Firestore.firestore()
+    private let storage = Storage.storage()
 
     // MARK: - Load
 
@@ -56,20 +60,19 @@ final class BusinessProfileEditViewModel: ObservableObject {
                 }
 
                 self.bio = data["bio"] as? String ?? ""
-
                 self.isMobile = data["isMobile"] as? Bool ?? false
+                self.isActive = data["isActive"] as? Bool ?? true
 
                 if let towns = data["serviceTowns"] as? [String] {
-                    self.selectedServiceTowns =
-                        Set(towns.compactMap { SupportedTown(rawValue: $0) })
+                    self.selectedServiceTowns = Set(
+                        towns.compactMap { SupportedTown(rawValue: $0) }
+                    )
+                } else {
+                    self.selectedServiceTowns = []
                 }
 
                 self.latitude = data["latitude"] as? Double
                 self.longitude = data["longitude"] as? Double
-
-                self.isActive = data["isActive"] as? Bool ?? true
-
-                // ✅ FIX: LOAD PHOTOS
                 self.photoURLs = data["photoURLs"] as? [String] ?? []
             }
     }
@@ -87,7 +90,6 @@ final class BusinessProfileEditViewModel: ObservableObject {
     // MARK: - Save
 
     func save(businessId: String, onComplete: @escaping () -> Void) {
-
         guard isValid else {
             errorMessage = "Please complete all required fields."
             return
@@ -99,16 +101,19 @@ final class BusinessProfileEditViewModel: ObservableObject {
         isSaving = true
         errorMessage = ""
 
+        let trimmedName = businessName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedBio = bio.trimmingCharacters(in: .whitespacesAndNewlines)
+
         let baseTown = selectedTown.rawValue
 
-        let serviceTownValues: [String] =
-            isMobile
-            ? selectedServiceTowns.map { $0.rawValue }
+        let serviceTownValues: [String] = isMobile
+            ? selectedServiceTowns.map { $0.rawValue }.sorted()
             : [baseTown]
 
         let updates: [String: Any] = [
-            "businessName": businessName.trimmingCharacters(in: .whitespacesAndNewlines),
-            "address": address,
+            "businessName": trimmedName,
+            "address": trimmedAddress,
             "category": selectedCategory.rawValue,
             "town": baseTown,
             "isMobile": isMobile,
@@ -116,9 +121,7 @@ final class BusinessProfileEditViewModel: ObservableObject {
             "latitude": latitude ?? NSNull(),
             "longitude": longitude ?? NSNull(),
             "isActive": isActive,
-            "bio": bio.trimmingCharacters(in: .whitespacesAndNewlines),
-
-            // ✅ FIX: SAVE PHOTOS
+            "bio": trimmedBio,
             "photoURLs": photoURLs
         ]
 
@@ -137,15 +140,59 @@ final class BusinessProfileEditViewModel: ObservableObject {
             }
     }
 
-    // MARK: - Photo Helpers (basic for now)
+    // MARK: - Photo Helpers
 
     func addPhotoURL(_ url: String) {
-        guard photoURLs.count < 5 else { return } // limit
+        guard photoURLs.count < 5 else { return }
         photoURLs.append(url)
     }
 
-    func removePhoto(at index: Int) {
+    func removePhotoLocally(at index: Int) {
         guard photoURLs.indices.contains(index) else { return }
         photoURLs.remove(at: index)
+    }
+
+    func persistPhotoOrder(businessId: String) async throws {
+        try await db.collection("businesses")
+            .document(businessId)
+            .setData([
+                "photoURLs": photoURLs
+            ], merge: true)
+    }
+
+    func deletePhoto(businessId: String, at index: Int) async {
+        guard photoURLs.indices.contains(index) else { return }
+
+        errorMessage = ""
+
+        let urlString = photoURLs[index]
+
+        do {
+            let ref = try storage.reference(forURL: urlString)
+
+            try await ref.delete()
+
+            photoURLs.remove(at: index)
+
+            try await db.collection("businesses")
+                .document(businessId)
+                .setData([
+                    "photoURLs": photoURLs
+                ], merge: true)
+        } catch {
+            errorMessage = "Failed to delete photo: \(error.localizedDescription)"
+        }
+    }
+
+    func appendUploadedPhotoAndPersist(businessId: String, urlString: String) async throws {
+        guard photoURLs.count < 5 else { return }
+
+        photoURLs.append(urlString)
+
+        try await db.collection("businesses")
+            .document(businessId)
+            .setData([
+                "photoURLs": photoURLs
+            ], merge: true)
     }
 }

@@ -1,38 +1,68 @@
 import SwiftUI
-import FirebaseAuth
-import FirebaseFirestore
 
 struct InboxView: View {
     
+    let businessId: String
+    
     @StateObject private var viewModel = InboxViewModel()
+    @AppStorage("userRole") private var currentRole: String = "customer"
     
     var body: some View {
+        
         List {
             
-            ForEach(viewModel.conversations) { convo in
-                
-                NavigationLink {
-                    BookingChatView(
-                        bookingId: convo.bookingId,
-                        businessId: "",
-                        customerId: "",
-                        currentUserRole: "customer"
-                    )
-                } label: {
-                    row(convo)
+            if viewModel.conversations.isEmpty {
+                emptyState
+            } else {
+                ForEach(viewModel.conversations) { convo in
+                    NavigationLink {
+                        EnquiryChatView(
+                            businessId: convo.businessId,
+                            customerId: convo.customerId
+                        )
+                    } label: {
+                        row(convo)
+                    }
                 }
             }
         }
         .listStyle(.plain)
         .navigationTitle("Inbox")
         .onAppear {
-            viewModel.startListening()
+            viewModel.startListening(
+                role: currentRole,
+                businessId: businessId
+            )
+        }
+        .onDisappear {
+            viewModel.stopListening()
         }
     }
 }
-
-// MARK: - ROW
-
+private extension InboxView {
+    
+    var emptyState: some View {
+        VStack(spacing: 12) {
+            
+            Spacer()
+            
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.system(size: 40))
+                .foregroundColor(.secondary)
+            
+            Text("No messages yet")
+                .font(.headline)
+            
+            Text("Your conversations will appear here")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+        .listRowBackground(Color.clear)
+    }
+}
 private extension InboxView {
     
     func row(_ convo: Conversation) -> some View {
